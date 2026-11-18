@@ -1,5 +1,6 @@
-import { BrowserWindow, clipboard, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron'
-import type { ComposeRequest, ComposeResult, ProjectInfo, ProjectState } from '../shared/types'
+import { promises as fs } from 'node:fs'
+import { BrowserWindow, clipboard, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
+import type { ComposeRequest, LibraryKind, LibraryScope, PresetInput, ProjectInfo, ProjectState } from '../shared/types'
 import { Project } from './project'
 import { addRecentProject, recentProjects, saveProjectState } from './store'
 
@@ -11,6 +12,11 @@ function assertTrustedSender(event: IpcMainInvokeEvent): void {
   const devUrl = process.env['ELECTRON_RENDERER_URL']
   const trusted = url.startsWith('file://') || (devUrl !== undefined && url.startsWith(devUrl))
   if (!trusted || event.senderFrame?.parent) throw new Error('Untrusted sender')
+}
+
+function asScope(scope: unknown): LibraryScope {
+  if (scope !== 'project' && scope !== 'user') throw new Error('Unknown library scope')
+  return scope
 }
 
 function requireProject(): Project {
@@ -25,10 +31,6 @@ export async function openProject(path: string): Promise<ProjectInfo> {
   return info
 }
 
-function stripInternal(result: ComposeResult & { fileBlocks?: unknown }): ComposeResult {
-  const { fileBlocks: _blocks, ...rest } = result
-  return rest
-}
 
 export function registerIpc(startupPath: () => Promise<string | null>): void {
   const handle = <A extends unknown[], R>(channel: string, fn: (...args: A) => Promise<R> | R): void => {
@@ -71,12 +73,37 @@ export function registerIpc(startupPath: () => Promise<string | null>): void {
   handle('project:recent', () => recentProjects())
   handle('file:read', (path: string) => requireProject().readFile(path))
   handle('skills:list', () => requireProject().listSkills())
+  handle('context:list', () => requireProject().listContext())
+  handle('presets:list', () => requireProject().listPresets())
+  handle('context:add', async (scope: LibraryScope) => {
+    const project = requireProject()
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    // the main process shows the dialog itself, so the UI can never name an arbitrary path to copy
+    const result = await dialog.showOpenDialog(win, {
+      title: scope === 'project' ? 'Add context files to this project' : 'Add context files to your library',
+      properties: ['openFile', 'multiSelections']
+    })
+    if (result.canceled) return { added: [], skipped: [] }
+    return project.addContextFiles(asScope(scope), result.filePaths)
+  })
+  handle('presets:save', (input: PresetInput) => requireProject().savePreset(input))
+  handle('presets:delete', (id: string) => {
+    if (typeof id !== 'string') throw new Error('Invalid preset')
+    return requireProject().deletePreset(id)
+  })
+  handle('library:open-folder', async (scope: LibraryScope, kind: LibraryKind) => {
+    if (!['skills', 'context', 'presets'].includes(kind)) throw new Error('Unknown library folder')
+    const dir = requireProject().libraryDir(asScope(scope), kind)
+    await fs.mkdir(dir, { recursive: true })
+    const error = await shell.openPath(dir)
+    if (error) throw new Error(error)
+  })
   handle('prompt:estimate', (req: ComposeRequest) => requireProject().estimate(req))
-  handle('prompt:compose', async (req: ComposeRequest) => stripInternal(await requireProject().compose(req)))
+  handle('prompt:compose', (req: ComposeRequest) => requireProject().compose(req))
   handle('prompt:copy', async (req: ComposeRequest) => {
     const result = await requireProject().compose(req)
     clipboard.writeText(result.text)
-    return stripInternal(result)
+    return result
   })
   handle('state:save', async (state: ProjectState) => {
     if (current && state && typeof state === 'object') await saveProjectState(current.root, state)

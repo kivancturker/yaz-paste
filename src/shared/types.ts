@@ -32,6 +32,10 @@ export interface ProjectState {
   format: OutputFormat
   treeMode: TreeMode
   wholeFileLineNumbers: boolean
+  /** Names of the saved context files ticked for this project. */
+  contextIds: string[]
+  /** The preset last applied, for display only. */
+  presetId: string | null
 }
 
 export interface ProjectInfo {
@@ -66,8 +70,51 @@ export interface SkillInfo {
   extraFiles: string[]
 }
 
+/** Where a skill, context file or preset comes from. */
+export type LibraryScope = 'project' | 'user'
+
+/** A saved reference file (guidelines, architecture notes, examples…) that can be added to any prompt. */
+export interface ContextItem {
+  /** Unique id: the file's path inside its context folder, e.g. "dotnet-conventions.md". */
+  id: string
+  name: string
+  description: string
+  source: SkillSource
+  size: number
+}
+
+/** A ready-made combination of a skill, context files and an optional task template. */
+export interface Preset {
+  /** Unique id: the preset's name. */
+  id: string
+  name: string
+  description: string
+  skill: string | null
+  context: string[]
+  /** Filled into the task box when it's empty. */
+  task: string
+  source: SkillSource
+}
+
+export interface PresetInput {
+  name: string
+  description: string
+  skill: string | null
+  context: string[]
+  task: string
+  scope: LibraryScope
+}
+
+export type LibraryKind = 'skills' | 'context' | 'presets'
+
+export interface AddContextResult {
+  added: string[]
+  skipped: { name: string; reason: string }[]
+}
+
 export interface ComposeRequest {
   selection: Record<string, FileSelection>
+  contextIds: string[]
   task: string
   skillId: string | null
   format: OutputFormat
@@ -114,6 +161,14 @@ export interface YazApi {
   recentProjects(): Promise<string[]>
   readFile(path: string): Promise<FileContent>
   listSkills(): Promise<SkillInfo[]>
+  listContext(): Promise<ContextItem[]>
+  listPresets(): Promise<Preset[]>
+  /** Shows a file dialog and copies the chosen files into the context library. */
+  addContextFiles(scope: LibraryScope): Promise<AddContextResult>
+  savePreset(input: PresetInput): Promise<Preset>
+  deletePreset(id: string): Promise<void>
+  /** Opens the library folder in Explorer / Finder (creating it if needed). */
+  openLibraryFolder(scope: LibraryScope, kind: LibraryKind): Promise<void>
   estimate(req: ComposeRequest): Promise<TokenEstimate>
   compose(req: ComposeRequest): Promise<ComposeResult>
   copy(req: ComposeRequest): Promise<ComposeResult>

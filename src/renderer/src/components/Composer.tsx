@@ -1,7 +1,20 @@
-import type { ComposeResult, OutputFormat, SkillInfo, TokenEstimate, TreeMode } from '../../../shared/types'
+import type { ComposeResult, ContextItem, LibraryKind, LibraryScope, OutputFormat, Preset, SkillInfo, TokenEstimate, TreeMode } from '../../../shared/types'
+import { formatTokens } from '../lib/tree'
+import { MenuButton } from './MenuButton'
 
 interface Props {
   skills: SkillInfo[]
+  contextItems: ContextItem[]
+  presets: Preset[]
+  presetId: string | null
+  contextIds: string[]
+  onPreset(id: string | null): void
+  onSavePreset(): void
+  onDeletePreset(id: string): void
+  onToggleContext(id: string): void
+  onAddContext(scope: LibraryScope): void
+  onOpenLibraryFolder(scope: LibraryScope, kind: LibraryKind): void
+  onRefreshLibrary(): void
   skillId: string | null
   task: string
   format: OutputFormat
@@ -24,17 +37,71 @@ interface Props {
 }
 
 const BUDGET = 200_000
-const SOURCE_LABEL: Record<SkillInfo['source'], string> = { project: 'Project skills', user: 'Your skills', 'built-in': 'Built-in skills' }
+const SOURCE_LABEL: Record<SkillInfo['source'], string> = { project: 'Project', user: 'Yours', 'built-in': 'Built-in' }
+const SOURCES = ['project', 'user', 'built-in'] as const
+
+function sameSet(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((x) => b.includes(x))
+}
 
 export function Composer(props: Props) {
   const { skills, skillId, estimate, result } = props
   const skill = skills.find((s) => s.id === skillId) ?? null
-  const groups = (['project', 'user', 'built-in'] as const).map((source) => ({ source, items: skills.filter((s) => s.source === source) }))
+  const groups = SOURCES.map((source) => ({ source, items: skills.filter((s) => s.source === source) }))
+  const preset = props.presets.find((p) => p.id === props.presetId) ?? null
+  const presetChanged = preset !== null && (preset.skill !== skillId || !sameSet(preset.context, props.contextIds))
+  const presetGroups = SOURCES.map((source) => ({ source, items: props.presets.filter((p) => p.source === source) }))
   const total = estimate?.total ?? 0
   const pct = Math.min(100, (total / BUDGET) * 100)
 
   return (
     <div className="composer">
+      <section>
+        <div className="label-row">
+          <label className="label" htmlFor="preset">
+            Preset
+          </label>
+          <div className="label-actions">
+            <button className="link" onClick={props.onSavePreset} disabled={!skillId && props.contextIds.length === 0}>
+              Save as preset…
+            </button>
+            {preset && preset.source !== 'built-in' && (
+              <button className="link danger-link" onClick={() => props.onDeletePreset(preset.id)}>
+                Delete
+              </button>
+            )}
+            <MenuButton
+              label="⋯"
+              items={[
+                { label: 'Open my presets folder', onSelect: () => props.onOpenLibraryFolder('user', 'presets') },
+                { label: 'Open project presets folder', onSelect: () => props.onOpenLibraryFolder('project', 'presets') },
+                { label: 'Reload library', hint: 'skills, context, presets', onSelect: props.onRefreshLibrary }
+              ]}
+            />
+          </div>
+        </div>
+        <select id="preset" value={props.presetId ?? ''} onChange={(e) => props.onPreset(e.target.value || null)}>
+          <option value="">No preset</option>
+          {presetGroups
+            .filter((g) => g.items.length)
+            .map((g) => (
+              <optgroup key={g.source} label={`${SOURCE_LABEL[g.source]} presets`}>
+                {g.items.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+        </select>
+        {preset && (
+          <p className="hint">
+            {preset.description || 'No description.'}
+            {presetChanged && <span className="changed"> · changed since applied</span>}
+          </p>
+        )}
+      </section>
+
       <section>
         <label className="label" htmlFor="skill">
           Skill
@@ -44,7 +111,7 @@ export function Composer(props: Props) {
           {groups
             .filter((g) => g.items.length)
             .map((g) => (
-              <optgroup key={g.source} label={SOURCE_LABEL[g.source]}>
+              <optgroup key={g.source} label={`${SOURCE_LABEL[g.source]} skills`}>
                 {g.items.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
@@ -58,6 +125,47 @@ export function Composer(props: Props) {
             {skill.description || 'No description.'}
             {skill.extraFiles.length > 0 && <span className="muted"> · {skill.extraFiles.length} extra file(s) not included</span>}
           </p>
+        )}
+      </section>
+
+      <section>
+        <div className="label-row">
+          <span className="label">
+            Context{props.contextIds.length > 0 && <span className="count-pill">{props.contextIds.length}</span>}
+          </span>
+          <div className="label-actions">
+            <MenuButton
+              label="Add file…"
+              items={[
+                { label: 'Add to my library…', hint: 'available in every project', onSelect: () => props.onAddContext('user') },
+                { label: 'Add to this project…', hint: '.yaz/context, shared through git', onSelect: () => props.onAddContext('project') },
+                'divider',
+                { label: 'Open my context folder', onSelect: () => props.onOpenLibraryFolder('user', 'context') },
+                { label: 'Open project context folder', onSelect: () => props.onOpenLibraryFolder('project', 'context') }
+              ]}
+            />
+          </div>
+        </div>
+        {props.contextItems.length === 0 ? (
+          <p className="hint">No saved context yet. Add reusable files such as coding guidelines, architecture notes or examples.</p>
+        ) : (
+          <ul className="context-list">
+            {props.contextItems.map((item) => {
+              const on = props.contextIds.includes(item.id)
+              const tokens = estimate?.perFile[`context/${item.id}`]
+              return (
+                <li key={item.id} title={item.description || item.name}>
+                  <label className={on ? 'on' : ''}>
+                    <input type="checkbox" checked={on} onChange={() => props.onToggleContext(item.id)} />
+                    <span className="context-name">{item.name}</span>
+                    <span className={`source source-${item.source}`}>{SOURCE_LABEL[item.source]}</span>
+                    {on && tokens !== undefined && <span className="tokens">{formatTokens(tokens)}</span>}
+                  </label>
+                  {item.description && <span className="context-desc">{item.description}</span>}
+                </li>
+              )
+            })}
+          </ul>
         )}
       </section>
 
@@ -104,6 +212,7 @@ export function Composer(props: Props) {
         <div className="budget-row">
           <span>
             {props.fileCount} file{props.fileCount === 1 ? '' : 's'}
+            {props.contextIds.length > 0 && <span className="muted"> (incl. {props.contextIds.length} context)</span>}
           </span>
           <span title="Estimated with the o200k tokenizer; Claude and Gemini counts are similar">≈ {total.toLocaleString()} tokens</span>
         </div>

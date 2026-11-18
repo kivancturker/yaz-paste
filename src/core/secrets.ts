@@ -224,3 +224,34 @@ export function maskedLinePreview(text: string, findings: SecretFinding[], line:
   out = out.trim()
   return out.length > maxLength ? out.slice(0, maxLength - 1) + '…' : out
 }
+
+export interface RedactedText {
+  text: string
+  findings: { id: string; path: string; line: number; rule: string; preview: string }[]
+  allowedCount: number
+}
+
+/** Stable id of a finding: where it is, which rule, and a hash of the value (never the value). */
+export function findingId(path: string, f: SecretFinding): string {
+  return `${path}:${f.rule}:${f.valueHash}`
+}
+
+/**
+ * Scans `content`, redacts every finding except the allowed ones, and describes the findings for the
+ * review panel. `inScope` limits the scan to the part of the text that will actually be included.
+ */
+export function scanAndRedact(
+  path: string,
+  content: string,
+  allow: Set<string>,
+  inScope: (f: SecretFinding) => boolean = () => true
+): RedactedText {
+  const all = scanSecrets(content).filter(inScope)
+  let allowedCount = 0
+  const findings = all.map((f) => {
+    const id = findingId(path, f)
+    if (allow.has(id)) allowedCount++
+    return { id, path, line: f.line, rule: f.rule, preview: maskedLinePreview(content, all, f.line) }
+  })
+  return { text: redact(content, all, (f) => allow.has(findingId(path, f))), findings, allowedCount }
+}

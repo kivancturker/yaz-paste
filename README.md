@@ -20,7 +20,7 @@ XML or Markdown prompt to the clipboard. Secrets are redacted before anything re
    - **From text selection**: turns the text you selected in the editor into ranges.
 
    **Whole file** switches back to including all of it.
-4. **Choose a skill** and **write the task**.
+4. **Pick a preset** (or choose a skill and tick context files yourself) and **write the task**.
 5. **Copy prompt** (`Ctrl/⌘+Shift+C`) or **Preview** (`Ctrl/⌘+Shift+P`).
 
 The token count (≈, o200k tokenizer) and a bar against a 200k context window update as you go.
@@ -57,7 +57,49 @@ Creating an order with no items throws. Fix it.
 </task>
 ```
 
-Context comes first and the task last, which is the order models follow best.
+Context comes first and the task last, which is the order models follow best. Ticked context files go in an
+`<additional_context>` section between the project and the skill.
+
+## Context files
+
+Context files are saved reference files you can add to any prompt, separate from the project's code: coding
+guidelines, architecture notes, example code, a glossary, "how to answer" instructions. Any text file works
+(`.md`, `.txt`, `.cs`, `.ts`, `.json`…). Tick them in the **Context** list of the right panel.
+
+Add files with **Context → Add file…** (they're copied into the library; the same block list and 1 MB limit as
+project files apply, and they're secret-scanned on every copy), or drop files into the folders directly:
+
+1. `<project>/.yaz/context/`: this project only; commit it to share with the team
+2. `~/.yaz/context/` (Windows: `%USERPROFILE%\.yaz\context\`): all your projects
+3. Built-in: `dotnet-conventions.md`, `node-conventions.md`, `review-checklist.md`, `answer-with-diffs.md`
+
+Subfolders are fine. If two files have the same path, the first location in the list wins. A Markdown file can have
+a `description:` in YAML frontmatter, which is shown in the list and left out of the prompt.
+
+## Presets
+
+A preset is a ready-made combination of a **skill**, **context files** and an optional **task template**, for the
+cases you hit again and again. Choosing one sets the skill, ticks its context files, and fills the task box with the
+template if it's empty. **Save as preset…** stores your current skill + context (and optionally the task) as a new
+preset. Presets are Markdown files:
+
+```markdown
+---
+name: .NET bug fix
+description: Find and fix a bug in .NET code, answering with diffs
+skill: bug-fix
+context:
+  - dotnet-conventions.md
+  - answer-with-diffs.md
+---
+Bug:
+
+Steps to reproduce:
+```
+
+They're loaded from `<project>/.yaz/presets/`, `~/.yaz/presets/`, and the built-in set: *.NET bug fix*,
+*Node.js bug fix*, *Code review*, *.NET unit tests*, *EF Core model change*, *Security audit*,
+*Explain to a newcomer*. The **⋯** menu opens the preset folders.
 
 ## Safety
 
@@ -119,13 +161,15 @@ npm run dev
 
 ```
 src/
-  core/        prompt renderer, secret scanner, tokens, skills loader (no Electron imports)
+  core/        prompt renderer, secret scanner, tokens, skills, context library & presets (no Electron imports)
   tools/code/  Tool #1: project scan, ignore/block rules, file reading, prompt section
   main/        Electron main process: window, menu, IPC, per-project state
   preload/     the typed bridge the UI calls (contextBridge)
   renderer/    React UI: file tree, Monaco viewer, composer
   shared/      types, line ranges, language map (used by both sides)
 skills/        built-in skills
+context/       built-in context files
+presets/       built-in presets
 tests/         unit tests
 scripts/       smoke test
 ```

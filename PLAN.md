@@ -19,6 +19,10 @@ modes; secret scan + redaction + review panel with allow-once; 8 built-in skills
 token estimate with a 200k meter; per-project state; recent projects; menu shortcuts; Windows/macOS packaging config;
 unit tests and an end-to-end smoke test (passes on the dev build and on a packaged macOS app).
 
+Added after the MVP: **context files** (saved reference files in `.yaz/context` / `~/.yaz/context` / built-in,
+rendered as `<additional_context>`) and **presets** (skill + context + task template in `.yaz/presets` /
+`~/.yaz/presets` / built-in), plus the line-selection rail and folder/file icons.
+
 Not yet verified: running on Windows (CI workflow is written but hasn't run), signed installers.
 Pulled forward from v1: glob filter + tick-all-shown, Markdown output, directory tree option.
 

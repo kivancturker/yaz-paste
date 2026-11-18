@@ -2,6 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   ComposeRequest,
   ComposeResult,
+  ContextItem,
+  LibraryKind,
+  LibraryScope,
+  Preset,
+  PresetInput,
   FileContent,
   FileSelection,
   OutputFormat,
@@ -14,6 +19,7 @@ import type {
 import { Composer } from './components/Composer'
 import { FileTree } from './components/FileTree'
 import { PreviewModal } from './components/PreviewModal'
+import { SavePresetModal } from './components/SavePresetModal'
 import { Viewer } from './components/Viewer'
 
 const api = window.api
@@ -25,7 +31,9 @@ const DEFAULT_STATE: ProjectState = {
   skillId: null,
   format: 'xml',
   treeMode: 'selected',
-  wholeFileLineNumbers: false
+  wholeFileLineNumbers: false,
+  contextIds: [],
+  presetId: null
 }
 
 function useDarkMode(): boolean {
@@ -51,6 +59,9 @@ export function App() {
   const [state, setState] = useState<ProjectState>(DEFAULT_STATE)
   const [recent, setRecent] = useState<string[]>([])
   const [skills, setSkills] = useState<SkillInfo[]>([])
+  const [contextItems, setContextItems] = useState<ContextItem[]>([])
+  const [presets, setPresets] = useState<Preset[]>([])
+  const [savingPreset, setSavingPreset] = useState(false)
   const [activePath, setActivePath] = useState<string | null>(null)
   const [file, setFile] = useState<FileContent | null>(null)
   const [fileLoading, setFileLoading] = useState(false)
@@ -68,6 +79,14 @@ export function App() {
     window.setTimeout(() => setToast((t) => (t?.text === text ? null : t)), error ? 6000 : 2500)
   }, [])
 
+  const refreshLibrary = useCallback(async () => {
+    const [s, c, p] = await Promise.all([api.listSkills(), api.listContext(), api.listPresets()])
+    setSkills(s)
+    setContextItems(c)
+    setPresets(p)
+    return { skills: s, context: c, presets: p }
+  }, [])
+
   const loadProject = useCallback(async (info: ProjectInfo | null) => {
     if (!info) return
     setProject(info)
@@ -77,10 +96,13 @@ export function App() {
     setResult(null)
     setAllow(new Set())
     setEstimate(null)
-    setSkills(await api.listSkills())
+    const library = await refreshLibrary()
+    // forget context files that were deleted from the library since last time
+    const known = new Set(library.context.map((c) => c.id))
+    setState((s) => ({ ...s, contextIds: s.contextIds.filter((id) => known.has(id)) }))
     setRecent(await api.recentProjects())
     document.title = `${info.name} — yaz-paste`
-  }, [])
+  }, [refreshLibrary])
 
   const run = useCallback(
     async <T,>(fn: () => Promise<T>): Promise<T | undefined> => {
@@ -112,10 +134,78 @@ export function App() {
         if (!info) return
         setProject(info)
         setState((s) => ({ ...s, selection: pruneSelection(s.selection, info) }))
-        setSkills(await api.listSkills())
+        await refreshLibrary()
         showToast(`Rescanned: ${info.files.length.toLocaleString()} files`)
       }),
-    [run, showToast]
+    [run, showToast, refreshLibrary]
+  )
+
+  // ---- presets and context library ----
+  const applyPreset = useCallback(
+    (id: string | null) => {
+      if (!id) {
+        setState((s) => ({ ...s, presetId: null }))
+        return
+      }
+      const preset = presets.find((p) => p.id === id)
+      if (!preset) return
+      const known = new Set(contextItems.map((c) => c.id))
+      const missing = preset.context.filter((c) => !known.has(c))
+      const skillMissing = preset.skill !== null && !skills.some((s) => s.id === preset.skill)
+      setState((s) => ({
+        ...s,
+        presetId: id,
+        skillId: skillMissing ? s.skillId : preset.skill,
+        contextIds: preset.context.filter((c) => known.has(c)),
+        task: s.task.trim() ? s.task : preset.task
+      }))
+      if (missing.length || skillMissing)
+        showToast(`Preset applied, but ${[...(skillMissing ? [`skill "${preset.skill}"`] : []), ...missing].join(', ')} not found`, true)
+    },
+    [presets, contextItems, skills, showToast]
+  )
+
+  const addContext = useCallback(
+    (scope: LibraryScope) =>
+      run(async () => {
+        const result = await api.addContextFiles(scope)
+        if (!result.added.length && !result.skipped.length) return
+        await refreshLibrary()
+        setState((s) => ({ ...s, contextIds: [...new Set([...s.contextIds, ...result.added])] }))
+        if (result.skipped.length) showToast(`Skipped ${result.skipped.map((f) => `${f.name} (${f.reason})`).join(', ')}`, true)
+        else showToast(`Added ${result.added.length} context file${result.added.length === 1 ? '' : 's'}`)
+      }),
+    [run, refreshLibrary, showToast]
+  )
+
+  const openLibraryFolder = useCallback(
+    (scope: LibraryScope, kind: LibraryKind) => run(() => api.openLibraryFolder(scope, kind)),
+    [run]
+  )
+
+  const savePreset = useCallback(
+    (input: PresetInput) =>
+      run(async () => {
+        const saved = await api.savePreset(input)
+        await refreshLibrary()
+        setState((s) => ({ ...s, presetId: saved.id }))
+        setSavingPreset(false)
+        showToast(`Saved preset "${saved.name}"`)
+      }),
+    [run, refreshLibrary, showToast]
+  )
+
+  const deletePreset = useCallback(
+    (id: string) => {
+      if (!window.confirm(`Delete the preset "${id}"? This removes its file.`)) return
+      void run(async () => {
+        await api.deletePreset(id)
+        await refreshLibrary()
+        setState((s) => ({ ...s, presetId: null }))
+        showToast(`Deleted preset "${id}"`)
+      })
+    },
+    [run, refreshLibrary, showToast]
   )
 
   // persist state (debounced)
@@ -128,6 +218,7 @@ export function App() {
   const request: ComposeRequest = useMemo(
     () => ({
       selection: state.selection,
+      contextIds: state.contextIds,
       task: state.task,
       skillId: state.skillId,
       format: state.format,
@@ -245,7 +336,7 @@ export function App() {
   )
 
   const activeEntry = project?.files.find((f) => f.path === activePath) ?? null
-  const fileCount = Object.keys(state.selection).length
+  const fileCount = Object.keys(state.selection).length + state.contextIds.length
 
   if (!project) {
     return (
@@ -344,6 +435,22 @@ export function App() {
         />
         <Composer
           skills={skills}
+          contextItems={contextItems}
+          presets={presets}
+          presetId={state.presetId}
+          contextIds={state.contextIds}
+          onPreset={applyPreset}
+          onSavePreset={() => setSavingPreset(true)}
+          onDeletePreset={deletePreset}
+          onToggleContext={(id) =>
+            setState((s) => ({
+              ...s,
+              contextIds: s.contextIds.includes(id) ? s.contextIds.filter((c) => c !== id) : [...s.contextIds, id]
+            }))
+          }
+          onAddContext={(scope) => void addContext(scope)}
+          onOpenLibraryFolder={(scope, kind) => void openLibraryFolder(scope, kind)}
+          onRefreshLibrary={() => void run(refreshLibrary)}
           skillId={state.skillId}
           task={state.task}
           format={state.format}
@@ -382,6 +489,16 @@ export function App() {
             setPreview(null)
             void copy()
           }}
+        />
+      )}
+      {savingPreset && (
+        <SavePresetModal
+          skillId={state.skillId}
+          contextIds={state.contextIds}
+          task={state.task}
+          current={presets.find((p) => p.id === state.presetId) ?? null}
+          onCancel={() => setSavingPreset(false)}
+          onSave={(input) => void savePreset(input)}
         />
       )}
       {toast && <div className={`toast${toast.error ? ' error' : ''}`}>{toast.text}</div>}

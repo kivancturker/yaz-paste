@@ -1,6 +1,6 @@
 // End-to-end smoke test: launches the built app on a fixture project, picks files and lines,
 // copies the prompt and checks what landed on the clipboard. Run with `npm run smoke`.
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { _electron as electron } from 'playwright-core'
@@ -142,9 +142,31 @@ try {
   await page.locator('.range-field input').press('Enter')
   check((await status()).includes('Lines 7-15'), 'typing 7-15 selects those lines')
 
-  // skill + task
-  await page.locator('#skill').selectOption('bug-fix')
+  // preset: applies a skill + context files + task template
+  await page.locator('#preset').selectOption('.NET bug fix')
+  await page.waitForTimeout(200)
+  check((await page.locator('#skill').inputValue()) === 'bug-fix', 'preset sets the skill')
+  const tickedContext = await page.locator('.context-list li label.on .context-name').allTextContents()
+  check(
+    tickedContext.length === 2 && tickedContext.includes('dotnet-conventions.md') && tickedContext.includes('answer-with-diffs.md'),
+    `preset ticks its context files (${tickedContext.join(', ')})`
+  )
+  check((await page.locator('#task').inputValue()).includes('Steps to reproduce'), 'preset fills the empty task with its template')
   await page.locator('#task').fill('Creating an order with no items throws. Fix it.')
+
+  // save the current setup as a project preset, then delete it
+  page.on('dialog', (d) => void d.accept())
+  await page.locator('button', { hasText: 'Save as preset…' }).click()
+  await page.locator('.small-modal input').first().fill('Smoke preset')
+  await page.locator('.small-modal label', { hasText: 'This project' }).locator('input').check()
+  await page.locator('.small-modal button[type=submit]').click()
+  await page.waitForTimeout(400)
+  const presetFile = join(fixture, '.yaz', 'presets', 'smoke-preset.md')
+  check(existsSync(presetFile) && readFileSync(presetFile, 'utf8').includes('dotnet-conventions.md'), 'Save as preset writes .yaz/presets/smoke-preset.md')
+  check((await page.locator('#preset').inputValue()) === 'Smoke preset', 'the saved preset is selected')
+  await page.locator('button.danger-link', { hasText: 'Delete' }).click()
+  await page.waitForTimeout(400)
+  check(!existsSync(presetFile), 'Delete removes the preset file')
   await page.waitForTimeout(600)
   await page.screenshot({ path: join(shots, '1-workspace.png') })
 
@@ -159,6 +181,8 @@ try {
   check(clip.includes('Password=[REDACTED:connection-string-password];') && !clip.includes('Hunter2x'), 'connection string password redacted')
   check(!clip.includes('sk_live_x'), '.env never included')
   check(clip.includes('<skill name="bug-fix">') && clip.trimEnd().endsWith('</task>'), 'skill and task come last')
+  const order = ['</project>', '<additional_context>', '<document name="dotnet-conventions.md">', '<skill name=', '<task>'].map((t) => clip.indexOf(t))
+  check(order.every((pos, i) => pos >= 0 && (i === 0 || pos > order[i - 1])), 'order: project, additional context, skill, task')
   check((await page.locator('.findings li').count()) === 1, 'review panel lists the redacted secret')
   await page.screenshot({ path: join(shots, '2-copied.png') })
 

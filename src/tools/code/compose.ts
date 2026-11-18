@@ -1,7 +1,8 @@
 import type { ContextBlock, ContextSection, ContextTool } from '../../core/context'
 import { countRangeLines, formatRanges, normalizeRanges, renderRanges, splitLines, withLineNumbers } from '../../shared/ranges'
 import { renderTree } from '../../core/render'
-import { maskedLinePreview, redact, scanSecrets, type SecretFinding } from '../../core/secrets'
+import { scanAndRedact, type SecretFinding } from '../../core/secrets'
+export { findingId } from '../../core/secrets'
 import { languageFor } from '../../shared/languages'
 import type { ComposeWarning, FileEntry, FileSelection, ProjectType, SecretFindingInfo, TreeMode } from '../../shared/types'
 import type { FileReader } from './files'
@@ -25,10 +26,6 @@ export interface CodeContextOutput {
   warnings: ComposeWarning[]
   /** Path → rendered content of that file's block (for token estimates). */
   fileBlocks: Map<string, string>
-}
-
-export function findingId(path: string, f: SecretFinding): string {
-  return `${path}:${f.rule}:${f.valueHash}`
 }
 
 const collator = new Intl.Collator('en', { sensitivity: 'base', numeric: true })
@@ -90,13 +87,10 @@ export const codeContextTool: ContextTool<CodeContextRequest> & {
         const endLine = f.line + (file.content.slice(f.start, f.end).split('\n').length - 1)
         return ranges.some(([a, b]) => f.line <= b && endLine >= a)
       }
-      const all = scanSecrets(file.content).filter(inScope)
-      for (const f of all) {
-        const id = findingId(path, f)
-        if (req.allow.has(id)) allowedCount++
-        findings.push({ id, path, line: f.line, rule: f.rule, preview: maskedLinePreview(file.content, all, f.line) })
-      }
-      const redacted = redact(file.content, all, (f) => req.allow.has(findingId(path, f)))
+      const scanned = scanAndRedact(path, file.content, req.allow, inScope)
+      findings.push(...scanned.findings)
+      allowedCount += scanned.allowedCount
+      const redacted = scanned.text
       const lines = splitLines(redacted)
 
       let content: string
