@@ -1,0 +1,29 @@
+appId: dev.yaz.paste
+productName: yaz-paste
+directories:
+  buildResources: build
+  output: release
+files:
+  - out/**
+  - package.json
+  - '!**/*.map'
+extraResources:
+  - from: skills
+    to: skills
+asarUnpack: []
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [universal]
+  hardenedRuntime: true
+linux:
+  target: [AppImage]
