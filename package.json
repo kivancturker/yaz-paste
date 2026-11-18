@@ -5,6 +5,10 @@
   "description": "Build safe, structured AI prompts from your code.",
   "author": "yaz-paste contributors",
   "main": "./out/main/index.js",
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0",
+    "npm": ">=8.3.0"
+  },
   "private": true,
   "scripts": {
     "dev": "electron-vite dev",

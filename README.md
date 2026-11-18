@@ -154,7 +154,11 @@ They are loaded from these folders. If two have the same `name`, the first one i
 
 ## Develop
 
-Requirements: Node.js 22+ and npm (plus Git). No native modules, so no Python or C++ build tools are needed.
+Requirements: **Node.js 22.12+, 24 or 26+** (24 LTS recommended; odd versions like 23 or 25 aren't supported by the
+test runner) and **npm 8.3+**, plus Git. No native modules, so no Python or C++ build tools are needed.
+`.nvmrc` selects Node 24 for nvm / fnm / Volta, and `npm install` refuses to run on an unsupported version
+(`engines` in `package.json` with `engine-strict` in `.npmrc`). The installed app doesn't need Node at all:
+Electron ships its own.
 
 ```bash
 npm install
