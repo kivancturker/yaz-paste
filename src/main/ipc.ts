@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import { BrowserWindow, clipboard, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
-import type { ComposeRequest, LibraryKind, LibraryScope, PresetInput, ProjectInfo, ProjectState } from '../shared/types'
+import type { ComposeRequest, LibraryItemInput, LibraryKind, LibraryScope, PresetInput, ProjectInfo, ProjectState } from '../shared/types'
 import { Project } from './project'
 import { addRecentProject, recentProjects, saveProjectState } from './store'
 
@@ -17,6 +17,11 @@ function assertTrustedSender(event: IpcMainInvokeEvent): void {
 function asScope(scope: unknown): LibraryScope {
   if (scope !== 'project' && scope !== 'user') throw new Error('Unknown library scope')
   return scope
+}
+
+function asKind(kind: unknown): LibraryKind {
+  if (kind !== 'skills' && kind !== 'context' && kind !== 'presets') throw new Error('Unknown library kind')
+  return kind
 }
 
 function requireProject(): Project {
@@ -87,13 +92,15 @@ export function registerIpc(startupPath: () => Promise<string | null>): void {
     return project.addContextFiles(asScope(scope), result.filePaths)
   })
   handle('presets:save', (input: PresetInput) => requireProject().savePreset(input))
+  handle('library:get', (kind: LibraryKind, id: string) => requireProject().getLibraryItem(asKind(kind), id))
+  handle('library:save', (input: LibraryItemInput) => requireProject().saveLibraryItem(input))
+  handle('library:delete', (kind: LibraryKind, id: string) => requireProject().deleteLibraryItem(asKind(kind), id))
   handle('presets:delete', (id: string) => {
     if (typeof id !== 'string') throw new Error('Invalid preset')
     return requireProject().deletePreset(id)
   })
   handle('library:open-folder', async (scope: LibraryScope, kind: LibraryKind) => {
-    if (!['skills', 'context', 'presets'].includes(kind)) throw new Error('Unknown library folder')
-    const dir = requireProject().libraryDir(asScope(scope), kind)
+    const dir = requireProject().libraryDir(asScope(scope), asKind(kind))
     await fs.mkdir(dir, { recursive: true })
     const error = await shell.openPath(dir)
     if (error) throw new Error(error)

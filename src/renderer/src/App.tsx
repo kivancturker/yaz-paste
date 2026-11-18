@@ -19,11 +19,16 @@ import type {
 import { Composer } from './components/Composer'
 import { FileTree } from './components/FileTree'
 import { PreviewModal } from './components/PreviewModal'
+import { LibraryModal, type LibraryTarget } from './components/LibraryModal'
 import { SavePresetModal } from './components/SavePresetModal'
+import { Splitter, usePanelWidth } from './components/Splitter'
 import { Viewer } from './components/Viewer'
 
 const api = window.api
 const MOD = api.platform === 'darwin' ? '⌘' : 'Ctrl+'
+
+const LEFT_LIMITS = { min: 200, max: 640, initial: 300 }
+const RIGHT_LIMITS = { min: 300, max: 720, initial: 370 }
 
 const DEFAULT_STATE: ProjectState = {
   selection: {},
@@ -55,6 +60,8 @@ function pruneSelection(selection: Record<string, FileSelection>, project: Proje
 
 export function App() {
   const dark = useDarkMode()
+  const [leftWidth, setLeftWidth, resetLeft] = usePanelWidth('yaz.panel.left', LEFT_LIMITS)
+  const [rightWidth, setRightWidth, resetRight] = usePanelWidth('yaz.panel.right', RIGHT_LIMITS)
   const [project, setProject] = useState<ProjectInfo | null>(null)
   const [state, setState] = useState<ProjectState>(DEFAULT_STATE)
   const [recent, setRecent] = useState<string[]>([])
@@ -62,6 +69,7 @@ export function App() {
   const [contextItems, setContextItems] = useState<ContextItem[]>([])
   const [presets, setPresets] = useState<Preset[]>([])
   const [savingPreset, setSavingPreset] = useState(false)
+  const [library, setLibrary] = useState<LibraryTarget | null>(null)
   const [activePath, setActivePath] = useState<string | null>(null)
   const [file, setFile] = useState<FileContent | null>(null)
   const [fileLoading, setFileLoading] = useState(false)
@@ -195,18 +203,6 @@ export function App() {
     [run, refreshLibrary, showToast]
   )
 
-  const deletePreset = useCallback(
-    (id: string) => {
-      if (!window.confirm(`Delete the preset "${id}"? This removes its file.`)) return
-      void run(async () => {
-        await api.deletePreset(id)
-        await refreshLibrary()
-        setState((s) => ({ ...s, presetId: null }))
-        showToast(`Deleted preset "${id}"`)
-      })
-    },
-    [run, refreshLibrary, showToast]
-  )
 
   // persist state (debounced)
   useEffect(() => {
@@ -371,12 +367,6 @@ export function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">yaz-paste</div>
-        <nav className="tools" aria-label="Tools">
-          <button className="tool on">Code Context</button>
-          <button className="tool" disabled title="Planned: read table structures from a dev database">
-            Database Schema <span className="soon">soon</span>
-          </button>
-        </nav>
         <div className="spacer" />
         <div className="project-info" title={project.root}>
           <strong>{project.name}</strong>
@@ -409,12 +399,15 @@ export function App() {
               </option>
             ))}
         </select>
+        <button onClick={() => setLibrary({ kind: 'presets', id: state.presetId })} title="Create and edit presets, skills and context files">
+          Library
+        </button>
         <button onClick={() => void rescan()} title="Rescan folder (F5)">
           Rescan
         </button>
       </header>
 
-      <main className="workspace">
+      <main className="workspace" style={{ gridTemplateColumns: `${leftWidth}px auto minmax(0, 1fr) auto ${rightWidth}px` }}>
         <FileTree
           files={project.files}
           selection={state.selection}
@@ -424,6 +417,7 @@ export function App() {
           onSetMany={setMany}
           onOpen={(p) => void openFile(p)}
         />
+        <Splitter width={leftWidth} direction={1} onResize={setLeftWidth} onReset={resetLeft} label="Resize file tree" />
         <Viewer
           entry={activeEntry}
           file={file && file.path === activePath ? file : null}
@@ -433,6 +427,7 @@ export function App() {
           dark={dark}
           onChange={(sel) => activePath && setFileSelection(activePath, sel)}
         />
+        <Splitter width={rightWidth} direction={-1} onResize={setRightWidth} onReset={resetRight} label="Resize prompt panel" />
         <Composer
           skills={skills}
           contextItems={contextItems}
@@ -441,7 +436,7 @@ export function App() {
           contextIds={state.contextIds}
           onPreset={applyPreset}
           onSavePreset={() => setSavingPreset(true)}
-          onDeletePreset={deletePreset}
+          onOpenLibrary={(kind, id) => setLibrary({ kind, id })}
           onToggleContext={(id) =>
             setState((s) => ({
               ...s,
@@ -449,8 +444,6 @@ export function App() {
             }))
           }
           onAddContext={(scope) => void addContext(scope)}
-          onOpenLibraryFolder={(scope, kind) => void openLibraryFolder(scope, kind)}
-          onRefreshLibrary={() => void run(refreshLibrary)}
           skillId={state.skillId}
           task={state.task}
           format={state.format}
@@ -489,6 +482,33 @@ export function App() {
             setPreview(null)
             void copy()
           }}
+        />
+      )}
+      {library && (
+        <LibraryModal
+          target={library}
+          skills={skills}
+          contextItems={contextItems}
+          presets={presets}
+          current={{ skillId: state.skillId, contextIds: state.contextIds, task: state.task }}
+          onClose={() => setLibrary(null)}
+          onChanged={async () => {
+            const lib = await refreshLibrary()
+            // drop a skill or context file that was just deleted or renamed
+            setState((s) => ({
+              ...s,
+              skillId: s.skillId && lib.skills.some((k) => k.id === s.skillId) ? s.skillId : null,
+              contextIds: s.contextIds.filter((id) => lib.context.some((c) => c.id === id))
+            }))
+          }}
+          onUse={(kind, id) => {
+            if (kind === 'presets') applyPreset(id)
+            else if (kind === 'skills') setState((s) => ({ ...s, skillId: id }))
+            else setState((s) => ({ ...s, contextIds: s.contextIds.includes(id) ? s.contextIds : [...s.contextIds, id] }))
+          }}
+          onAddContextFiles={(scope) => void addContext(scope)}
+          onOpenFolder={(scope, kind) => void openLibraryFolder(scope, kind)}
+          onError={(message) => showToast(message, true)}
         />
       )}
       {savingPreset && (

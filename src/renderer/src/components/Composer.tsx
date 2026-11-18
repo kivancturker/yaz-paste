@@ -10,11 +10,10 @@ interface Props {
   contextIds: string[]
   onPreset(id: string | null): void
   onSavePreset(): void
-  onDeletePreset(id: string): void
+  /** Opens the library editor on a kind, at an item or (null) a new one. */
+  onOpenLibrary(kind: LibraryKind, id: string | null): void
   onToggleContext(id: string): void
   onAddContext(scope: LibraryScope): void
-  onOpenLibraryFolder(scope: LibraryScope, kind: LibraryKind): void
-  onRefreshLibrary(): void
   skillId: string | null
   task: string
   format: OutputFormat
@@ -62,22 +61,20 @@ export function Composer(props: Props) {
             Preset
           </label>
           <div className="label-actions">
-            <button className="link" onClick={props.onSavePreset} disabled={!skillId && props.contextIds.length === 0}>
-              Save as preset…
+            <button
+              className="link"
+              onClick={props.onSavePreset}
+              disabled={!skillId && props.contextIds.length === 0}
+              title="Save the current skill and context files as a preset"
+            >
+              Save current…
             </button>
-            {preset && preset.source !== 'built-in' && (
-              <button className="link danger-link" onClick={() => props.onDeletePreset(preset.id)}>
-                Delete
-              </button>
-            )}
-            <MenuButton
-              label="⋯"
-              items={[
-                { label: 'Open my presets folder', onSelect: () => props.onOpenLibraryFolder('user', 'presets') },
-                { label: 'Open project presets folder', onSelect: () => props.onOpenLibraryFolder('project', 'presets') },
-                { label: 'Reload library', hint: 'skills, context, presets', onSelect: props.onRefreshLibrary }
-              ]}
-            />
+            <button className="link" onClick={() => props.onOpenLibrary('presets', null)} title="Create a preset from scratch">
+              New
+            </button>
+            <button className="link" onClick={() => props.onOpenLibrary('presets', props.presetId)} title="Edit, duplicate or delete presets">
+              {preset ? 'Edit' : 'Manage'}
+            </button>
           </div>
         </div>
         <select id="preset" value={props.presetId ?? ''} onChange={(e) => props.onPreset(e.target.value || null)}>
@@ -103,9 +100,19 @@ export function Composer(props: Props) {
       </section>
 
       <section>
-        <label className="label" htmlFor="skill">
-          Skill
-        </label>
+        <div className="label-row">
+          <label className="label" htmlFor="skill">
+            Skill
+          </label>
+          <div className="label-actions">
+            <button className="link" onClick={() => props.onOpenLibrary('skills', null)} title="Write a new skill">
+              New
+            </button>
+            <button className="link" onClick={() => props.onOpenLibrary('skills', skillId)} title="View, edit, duplicate or delete skills">
+              {skill ? (skill.source === 'built-in' ? 'View' : 'Edit') : 'Manage'}
+            </button>
+          </div>
+        </div>
         <select id="skill" value={skillId ?? ''} onChange={(e) => props.onSkill(e.target.value || null)}>
           <option value="">No skill</option>
           {groups
@@ -134,20 +141,29 @@ export function Composer(props: Props) {
             Context{props.contextIds.length > 0 && <span className="count-pill">{props.contextIds.length}</span>}
           </span>
           <div className="label-actions">
+            <button className="link" onClick={() => props.onOpenLibrary('context', null)} title="Write or paste a new context file">
+              New
+            </button>
             <MenuButton
-              label="Add file…"
+              label="Import…"
               items={[
-                { label: 'Add to my library…', hint: 'available in every project', onSelect: () => props.onAddContext('user') },
-                { label: 'Add to this project…', hint: '.yaz/context, shared through git', onSelect: () => props.onAddContext('project') },
-                'divider',
-                { label: 'Open my context folder', onSelect: () => props.onOpenLibraryFolder('user', 'context') },
-                { label: 'Open project context folder', onSelect: () => props.onOpenLibraryFolder('project', 'context') }
+                { label: 'Import files to my library…', hint: 'available in every project', onSelect: () => props.onAddContext('user') },
+                { label: 'Import files to this project…', hint: '.yaz/context, shared through git', onSelect: () => props.onAddContext('project') }
               ]}
             />
+            <button
+              className="link"
+              onClick={() => props.onOpenLibrary('context', props.contextIds[0] ?? props.contextItems[0]?.id ?? null)}
+              title="Edit or delete context files"
+            >
+              Manage
+            </button>
           </div>
         </div>
         {props.contextItems.length === 0 ? (
-          <p className="hint">No saved context yet. Add reusable files such as coding guidelines, architecture notes or examples.</p>
+          <p className="hint">
+            No saved context yet. Click <strong>New</strong> to write or paste guidelines, architecture notes or examples, or <strong>Import…</strong> existing files.
+          </p>
         ) : (
           <ul className="context-list">
             {props.contextItems.map((item) => {

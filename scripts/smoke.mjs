@@ -9,6 +9,8 @@ const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const work = join(repo, '.smoke')
 const fixture = join(work, 'ShopFixture')
 const shots = join(work, 'screens')
+// a fake home folder, so the test never touches the real ~/.yaz or ~/.claude/skills
+const home = join(work, 'home')
 rmSync(work, { recursive: true, force: true })
 mkdirSync(shots, { recursive: true })
 
@@ -53,7 +55,7 @@ write('src/Shop.Api/bin/Debug/Shop.Api.dll', 'MZ')
 const executablePath = process.env.YAZ_EXECUTABLE
 const app = await electron.launch({
   ...(executablePath ? { executablePath, args: [fixture] } : { args: [repo, fixture] }),
-  env: { ...process.env, YAZ_USER_DATA: join(work, 'userdata'), YAZ_NO_RESTORE: '1' }
+  env: { ...process.env, YAZ_USER_DATA: join(work, 'userdata'), YAZ_HOME: home, YAZ_NO_RESTORE: '1', YAZ_NO_TRASH: '1' }
 })
 const failures = []
 const check = (ok, message) => {
@@ -156,7 +158,7 @@ try {
 
   // save the current setup as a project preset, then delete it
   page.on('dialog', (d) => void d.accept())
-  await page.locator('button', { hasText: 'Save as preset…' }).click()
+  await page.locator('.composer button', { hasText: 'Save current…' }).click()
   await page.locator('.small-modal input').first().fill('Smoke preset')
   await page.locator('.small-modal label', { hasText: 'This project' }).locator('input').check()
   await page.locator('.small-modal button[type=submit]').click()
@@ -164,9 +166,13 @@ try {
   const presetFile = join(fixture, '.yaz', 'presets', 'smoke-preset.md')
   check(existsSync(presetFile) && readFileSync(presetFile, 'utf8').includes('dotnet-conventions.md'), 'Save as preset writes .yaz/presets/smoke-preset.md')
   check((await page.locator('#preset').inputValue()) === 'Smoke preset', 'the saved preset is selected')
-  await page.locator('button.danger-link', { hasText: 'Delete' }).click()
+  await page.locator('.composer button', { hasText: 'Edit' }).first().click()
+  await page.waitForSelector('.library-modal')
+  check((await page.locator('.library-editor input').first().inputValue()) === 'Smoke preset', 'Edit opens the preset in the library')
+  await page.locator('.library-modal button.danger-outline', { hasText: 'Delete' }).click()
   await page.waitForTimeout(400)
   check(!existsSync(presetFile), 'Delete removes the preset file')
+  await page.locator('.library-modal .modal-head button', { hasText: 'Close' }).click()
   await page.waitForTimeout(600)
   await page.screenshot({ path: join(shots, '1-workspace.png') })
 
@@ -209,6 +215,99 @@ try {
   await page.waitForTimeout(400)
   const md = await app.evaluate(({ clipboard }) => clipboard.readText())
   check(md.startsWith('# Project: ShopFixture') && md.includes('```csharp'), 'markdown format works')
+
+  // ---- resizable panels ----
+  const treeWidth = async () => (await page.locator('.tree-panel').boundingBox()).width
+  const before = await treeWidth()
+  const splitter = await page.locator('.splitter').first().boundingBox()
+  await page.mouse.move(splitter.x + splitter.width / 2, splitter.y + 200)
+  await page.mouse.down()
+  await page.mouse.move(splitter.x + splitter.width / 2 + 120, splitter.y + 200, { steps: 6 })
+  await page.mouse.up()
+  check(Math.abs((await treeWidth()) - before - 120) <= 2, `dragging the splitter widens the file tree (${before} → ${await treeWidth()})`)
+  await page.locator('.splitter').first().dblclick()
+  check(Math.abs((await treeWidth()) - 300) <= 2, 'double-clicking the splitter resets the width')
+  const composerBefore = (await page.locator('.composer').boundingBox()).width
+  const right = await page.locator('.splitter').nth(1).boundingBox()
+  await page.mouse.move(right.x + right.width / 2, right.y + 200)
+  await page.mouse.down()
+  await page.mouse.move(right.x + right.width / 2 - 100, right.y + 200, { steps: 6 })
+  await page.mouse.up()
+  check(Math.abs((await page.locator('.composer').boundingBox()).width - composerBefore - 100) <= 2, 'dragging the right splitter widens the prompt panel')
+
+  // ---- library: create a context file, a skill and a preset from inside the app ----
+  await page.locator('.segmented button', { hasText: 'XML' }).click()
+  const section = (label) => page.locator('.composer section', { has: page.locator('.label', { hasText: new RegExp(`^${label}`) }) })
+  const field = (label) => page.locator('.library-editor .field', { has: page.locator('.label', { hasText: label }) }).locator('input, textarea, select').first()
+
+  await section('Context').locator('button', { hasText: 'New' }).click()
+  await page.waitForSelector('.library-modal')
+  await field('File name').fill('team-rules')
+  await field('Description').fill('Our team rules')
+  await field('Content').fill('Always use records for DTOs.')
+  await page.locator('.library-modal button.primary', { hasText: 'Create context file' }).click()
+  await page.waitForTimeout(400)
+  const ctxFile = join(home, '.yaz', 'context', 'team-rules.md')
+  check(existsSync(ctxFile) && readFileSync(ctxFile, 'utf8').includes('description: Our team rules'), 'New context file is written to ~/.yaz/context')
+  await page.screenshot({ path: join(shots, '5-library-context.png') })
+  await page.locator('.library-modal button', { hasText: 'Tick for this prompt' }).click()
+  await page.waitForTimeout(200)
+  check((await page.locator('.context-list li label.on .context-name', { hasText: 'team-rules.md' }).count()) === 1, '"Tick for this prompt" ticks the new context file')
+
+  await section('Skill').locator('button', { hasText: 'New' }).click()
+  await page.waitForSelector('.library-modal')
+  await field('Name').fill('smoke-skill')
+  await field('Description').fill('A skill made by the smoke test')
+  await field('Instructions').fill('Answer in one sentence.')
+  await page.locator('.library-modal button.primary', { hasText: 'Create skill' }).click()
+  await page.waitForTimeout(400)
+  const skillFile = join(home, '.claude', 'skills', 'smoke-skill', 'SKILL.md')
+  check(existsSync(skillFile) && readFileSync(skillFile, 'utf8').includes('Answer in one sentence.'), 'New skill is written to ~/.claude/skills/smoke-skill/SKILL.md')
+  await page.locator('.library-modal button', { hasText: 'Use this skill' }).click()
+  await page.waitForTimeout(200)
+  check((await page.locator('#skill').inputValue()) === 'smoke-skill', '"Use this skill" selects it')
+
+  await section('Preset').locator('button', { hasText: 'New' }).click()
+  await page.waitForSelector('.library-modal')
+  await page.waitForTimeout(200)
+  check((await field('Skill').inputValue()) === 'smoke-skill', 'a new preset starts from the current skill')
+  await field('Name').fill('Smoke combo')
+  await field('Task template').fill('Explain:')
+  await page.locator('.library-modal button.primary', { hasText: 'Create preset' }).click()
+  await page.waitForTimeout(400)
+  const comboFile = join(home, '.yaz', 'presets', 'smoke-combo.md')
+  const combo = existsSync(comboFile) ? readFileSync(comboFile, 'utf8') : ''
+  check(combo.includes('skill: smoke-skill') && combo.includes('team-rules.md') && combo.includes('Explain:'), 'New preset saves skill, context and task template')
+  await page.screenshot({ path: join(shots, '6-library-preset.png') })
+  await page.locator('.library-modal button', { hasText: 'Apply preset' }).click()
+  await page.waitForTimeout(200)
+  check((await page.locator('#preset').inputValue()) === 'Smoke combo', '"Apply preset" selects it')
+
+  // built-in skills are read-only; duplicating makes an editable copy that overrides them
+  await page.locator('.topbar button', { hasText: 'Library' }).click()
+  await page.locator('.library-modal .tabs button', { hasText: 'Skills' }).click()
+  await page.locator('.library-list li', { hasText: 'bug-fix' }).click()
+  await page.waitForTimeout(300)
+  check((await page.locator('.library-editor .banner').count()) === 1 && (await field('Instructions').isDisabled()), 'built-in skill opens read-only')
+  await page.screenshot({ path: join(shots, '7-library-builtin.png') })
+  await page.locator('.banner button', { hasText: 'Duplicate to edit' }).click()
+  await field('Description').fill('My own bug-fix')
+  await page.locator('.library-modal button.primary', { hasText: 'Create skill' }).click()
+  await page.waitForTimeout(400)
+  check(existsSync(join(home, '.claude', 'skills', 'bug-fix', 'SKILL.md')), 'duplicate writes ~/.claude/skills/bug-fix')
+  check((await page.locator('.library-list li', { hasText: 'bug-fix' }).locator('.source').textContent()) === 'Yours', 'your copy replaces the built-in bug-fix')
+
+  // edit then delete the new skill
+  await page.locator('.library-list li', { hasText: 'smoke-skill' }).click()
+  await page.waitForTimeout(300)
+  await field('Description').fill('Edited description')
+  await page.locator('.library-modal button.primary', { hasText: 'Save changes' }).click()
+  await page.waitForTimeout(400)
+  check(readFileSync(skillFile, 'utf8').includes('Edited description'), 'Save changes updates SKILL.md')
+  await page.locator('.library-modal button.danger-outline', { hasText: 'Delete' }).click()
+  await page.waitForTimeout(400)
+  check(!existsSync(join(home, '.claude', 'skills', 'smoke-skill')), 'Delete removes the skill folder')
+  await page.locator('.library-modal .modal-head button', { hasText: 'Close' }).click()
 
   // dark mode
   await page.emulateMedia({ colorScheme: 'dark' })

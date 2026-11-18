@@ -157,14 +157,22 @@ export function slugify(name: string): string {
   return slug.slice(0, 80) || 'untitled'
 }
 
-/** Writes a preset into `dir`, replacing a preset with the same name in that folder. */
-export async function writePreset(dir: string, input: PresetInput, existing: LoadedPreset[]): Promise<string> {
-  const name = input.name.trim()
-  if (!name) throw new Error('A preset needs a name')
-  if (name.length > 120) throw new Error('Preset name is too long')
+function checkName(name: string, what: string): string {
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error(`A ${what} needs a name`)
+  if (trimmed.length > 120) throw new Error(`The ${what} name is too long`)
+  return trimmed
+}
+
+/**
+ * Writes a preset into `dir`, replacing a preset with the same name in that folder.
+ * `existingFile` (when editing) is overwritten in place, even if the name changed.
+ */
+export async function writePreset(dir: string, input: PresetInput, existing: LoadedPreset[], existingFile?: string): Promise<string> {
+  const name = checkName(input.name, 'preset')
   await fs.mkdir(dir, { recursive: true })
   const same = existing.find((p) => p.id === name && resolve(p.file, '..') === resolve(dir))
-  const file = same ? same.file : await uniquePath(dir, slugify(name), '.md')
+  const file = existingFile ?? (same ? same.file : await uniquePath(dir, slugify(name), '.md'))
   await fs.writeFile(file, serializePreset(input), 'utf8')
   return file
 }
@@ -247,4 +255,90 @@ export async function buildContextSection(
   }
   if (blocks.length) out.section = { tag: 'additional_context', title: 'Additional context', attributes: {}, blocks }
   return out
+}
+
+// ---- skills and context files written from the app ----------------------------------------------
+
+export function serializeSkill(input: { name: string; description: string; body: string }): string {
+  const meta = stringifyYaml({ name: input.name.trim(), description: input.description.trim() })
+  return `---\n${meta}---\n\n${input.body.trim()}\n`
+}
+
+/** Creates `dir/<slug>/SKILL.md`, or overwrites `existingFile` when editing. Returns the SKILL.md path. */
+export async function writeSkill(
+  dir: string,
+  input: { name: string; description: string; body: string },
+  existingFile?: string
+): Promise<string> {
+  checkName(input.name, 'skill')
+  if (!input.body.trim()) throw new Error('A skill needs instructions')
+  if (existingFile) {
+    await fs.writeFile(existingFile, serializeSkill(input), 'utf8')
+    return existingFile
+  }
+  await fs.mkdir(dir, { recursive: true })
+  const folder = await uniquePath(dir, slugify(input.name), '')
+  await fs.mkdir(folder)
+  const file = join(folder, 'SKILL.md')
+  await fs.writeFile(file, serializeSkill(input), 'utf8')
+  return file
+}
+
+/** A context file name typed by the user: no folders, `.md` added when there's no extension. */
+export function contextFileName(name: string): string {
+  const trimmed = checkName(name, 'context file')
+  if (/[\\/]/.test(trimmed) || trimmed.startsWith('.')) throw new Error('Use a plain file name, like coding-guidelines.md')
+  const ext = extname(trimmed)
+  const base = slugify(ext ? trimmed.slice(0, -ext.length) : trimmed)
+  return base + (ext ? ext.toLowerCase() : '.md')
+}
+
+export function serializeContext(fileName: string, description: string, body: string): string {
+  const text = body.replace(/\r\n?/g, '\n').replace(/\s+$/, '') + '\n'
+  if (extname(fileName).toLowerCase() !== '.md' || !description.trim()) return text
+  return `---\n${stringifyYaml({ description: description.trim() })}---\n${text}`
+}
+
+/**
+ * Creates `dir/<name>` or updates `existing` (renaming it in its folder when the name changed).
+ * `dir` is the root of the context folder the item belongs to. Returns the new id.
+ * Refuses names on the block list (.env, keys…) and never overwrites another file.
+ */
+export async function writeContext(
+  dir: string,
+  input: { name: string; description: string; body: string },
+  existing?: { file: string }
+): Promise<string> {
+  const fileName = contextFileName(input.name)
+  const blocked = blockReason(fileName)
+  if (blocked) throw new Error(`Can't save "${fileName}": ${blocked}`)
+  if (Buffer.byteLength(input.body, 'utf8') > MAX_CONTEXT_BYTES) throw new Error('Context files are limited to 1 MB')
+  const content = serializeContext(fileName, input.description, input.body)
+  const folder = existing ? resolve(existing.file, '..') : dir
+  await fs.mkdir(folder, { recursive: true })
+  let target = join(folder, fileName)
+  if (existing && resolve(target) === resolve(existing.file)) {
+    await fs.writeFile(target, content, 'utf8')
+  } else {
+    if (await exists(target)) throw new Error(`A context file named "${fileName}" already exists`)
+    await fs.writeFile(target, content, 'utf8')
+    if (existing) await fs.unlink(existing.file)
+  }
+  return toId(resolve(dir), resolve(target))
+}
+
+/** Reads a context file for editing: Markdown frontmatter `description` is split from the body. */
+export async function readContextForEdit(file: string): Promise<{ description: string; body: string }> {
+  const { content, binary } = decodeText(await fs.readFile(file))
+  if (binary) throw new Error('Binary file')
+  if (extname(file).toLowerCase() !== '.md') return { description: '', body: content }
+  const { meta, body } = parseSkillMarkdown(content)
+  return { description: typeof meta.description === 'string' ? meta.description : '', body: body.replace(/^\n+/, '') }
+}
+
+/** True when `path` is `dir` itself or inside it. */
+export function isInside(path: string, dir: string): boolean {
+  const p = resolve(path)
+  const d = resolve(dir)
+  return p === d || p.startsWith(d + sep)
 }

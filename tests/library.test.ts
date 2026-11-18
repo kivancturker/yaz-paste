@@ -5,6 +5,10 @@ import { afterAll, describe, expect, it } from 'vitest'
 import {
   addContextFile,
   buildContextSection,
+  contextFileName,
+  readContextForEdit,
+  writeContext,
+  writeSkill,
   loadContextItems,
   loadPresets,
   parsePreset,
@@ -131,5 +135,38 @@ describe('presets', () => {
       if (p.skill) expect(skills.has(p.skill)).toBe(true)
       for (const c of p.context) expect(context.has(c)).toBe(true)
     }
+  })
+})
+
+describe('writing skills and context files', () => {
+  it('creates a skill folder with SKILL.md and edits it in place', async () => {
+    const dir = join(root, 'skills-user')
+    const file = await writeSkill(dir, { name: 'API Review', description: 'Review HTTP APIs', body: 'Check status codes.' })
+    expect(file).toBe(join(dir, 'api-review', 'SKILL.md'))
+    let skills = await loadSkills([{ dir, source: 'user' }])
+    expect(skills.map((s) => [s.name, s.description])).toEqual([['API Review', 'Review HTTP APIs']])
+    await writeSkill(dir, { name: 'API Review v2', description: 'd', body: 'New body' }, file)
+    skills = await loadSkills([{ dir, source: 'user' }])
+    expect(skills.map((s) => s.name)).toEqual(['API Review v2'])
+    await expect(writeSkill(dir, { name: 'x', description: '', body: '  ' })).rejects.toThrow(/instructions/)
+  })
+
+  it('creates, renames and protects context files', async () => {
+    const dir = join(root, 'ctx-write')
+    expect(contextFileName('Coding Guidelines')).toBe('coding-guidelines.md')
+    expect(contextFileName('Example.CS')).toBe('example.cs')
+    expect(() => contextFileName('../x.md')).toThrow()
+    expect(() => contextFileName('.hidden')).toThrow()
+
+    const id = await writeContext(dir, { name: 'guidelines', description: 'Team rules', body: 'Use records.\r\n' })
+    expect(id).toBe('guidelines.md')
+    expect(await readContextForEdit(join(dir, id))).toEqual({ description: 'Team rules', body: 'Use records.\n' })
+    await expect(writeContext(dir, { name: 'guidelines.md', description: '', body: 'x' })).rejects.toThrow(/already exists/)
+    await expect(writeContext(dir, { name: 'prod.pem', description: '', body: 'x' })).rejects.toThrow(/Private key/)
+
+    const renamed = await writeContext(dir, { name: 'rules.txt', description: 'ignored for .txt', body: 'Use records.' }, { file: join(dir, id) })
+    expect(renamed).toBe('rules.txt')
+    expect(readdirSync(dir)).toEqual(['rules.txt'])
+    expect(await readContextForEdit(join(dir, 'rules.txt'))).toEqual({ description: '', body: 'Use records.\n' })
   })
 })

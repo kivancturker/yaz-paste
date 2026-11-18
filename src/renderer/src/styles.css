@@ -173,28 +173,6 @@ kbd {
   font-weight: 700;
   letter-spacing: -0.01em;
 }
-.tools {
-  display: flex;
-  gap: 4px;
-}
-.tool {
-  background: none;
-  border-color: transparent;
-}
-.tool.on {
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 600;
-}
-.soon {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0 4px;
-  margin-left: 4px;
-}
 .project-info {
   display: flex;
   align-items: center;
@@ -215,8 +193,45 @@ kbd {
 .workspace {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(320px, 380px);
   min-height: 0;
+}
+
+/* drag handles between panels */
+.splitter {
+  width: 5px;
+  margin: 0 -2px;
+  z-index: 10;
+  position: relative;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.12s;
+  outline: none;
+}
+.splitter::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 1px;
+  background: var(--border);
+}
+.splitter:hover,
+.splitter:focus-visible,
+.splitter.dragging {
+  background: var(--accent-soft);
+}
+.splitter:hover::after,
+.splitter:focus-visible::after,
+.splitter.dragging::after {
+  background: var(--accent);
+  width: 2px;
+  left: 1.5px;
+}
+body.resizing,
+body.resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 /* tree */
@@ -224,7 +239,7 @@ kbd {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--border);
+  min-width: 0;
   background: var(--panel);
 }
 .tree-toolbar {
@@ -604,9 +619,9 @@ kbd {
   flex-direction: column;
   gap: 14px;
   padding: 12px;
-  border-left: 1px solid var(--border);
   background: var(--panel);
   overflow: auto;
+  min-width: 0;
   min-height: 0;
 }
 .composer section {
@@ -1060,4 +1075,150 @@ textarea {
   gap: 8px;
   padding: 10px 14px;
   border-top: 1px solid var(--border);
+}
+
+/* library editor */
+.library-modal {
+  width: min(1080px, 94vw);
+  height: min(760px, 90vh);
+}
+.library-modal .tabs {
+  margin-left: 12px;
+}
+.library-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 270px minmax(0, 1fr);
+}
+.library-list {
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  min-height: 0;
+}
+.library-list-head {
+  display: flex;
+  gap: 6px;
+}
+.library-list-head > button.primary {
+  flex: 1;
+}
+.library-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.library-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.library-list li:hover {
+  background: var(--panel-2);
+}
+.library-list li.selected {
+  background: var(--accent-soft);
+}
+.library-list li.new-item {
+  cursor: default;
+  font-style: italic;
+}
+.library-list li.empty {
+  cursor: default;
+}
+.item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.library-editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+.editor-fields {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+.field.grow {
+  flex: 1;
+  min-height: 180px;
+}
+.field select,
+.field input:not([type]),
+.field textarea {
+  width: 100%;
+}
+.field textarea {
+  flex: 1;
+  min-height: 160px;
+}
+textarea.mono {
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.field input:disabled,
+.field textarea:disabled,
+.field select:disabled {
+  opacity: 0.75;
+}
+.radio-row {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.context-list.compact {
+  max-height: 130px;
+}
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 14px 0;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+  color: var(--text);
+  font-size: 12.5px;
+}
+.banner span {
+  flex: 1;
+}
+.editor-error {
+  margin: 0 14px 8px;
+}
+.location {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 50%;
+  font-family: var(--mono);
+}
+button.danger-outline {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: none;
+}
+.modal-foot {
+  align-items: center;
 }

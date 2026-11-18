@@ -25,6 +25,24 @@ XML or Markdown prompt to the clipboard. Secrets are redacted before anything re
 
 The token count (≈, o200k tokenizer) and a bar against a 200k context window update as you go.
 
+The three panels are resizable: drag the line between them (double-click it to reset). Widths are remembered.
+
+## Library: create presets, skills and context files
+
+Everything reusable is managed in the **Library** (top bar), or straight from the right panel:
+
+| In the right panel | What it does |
+|---|---|
+| **Preset → Save current…** | Saves the skill and context files you have selected right now as a preset |
+| **Preset / Skill / Context → New** | Opens the Library with a blank preset, skill or context file |
+| **Preset / Skill → Edit** (or **View**) | Opens the selected one in the Library |
+| **Context → Import…** | Copies existing files from disk into your library or the project |
+
+In the Library you can write or paste content, choose where a new item is saved (**My library** for all
+projects, or **This project** to share it through git), save changes, delete (moves to the trash), and use the
+item right away (**Apply preset** / **Use this skill** / **Tick for this prompt**). Built-in items are read-only:
+**Duplicate to edit** makes your own copy, and a copy with the same name replaces the built-in one.
+
 ### What the prompt looks like
 
 ```xml
@@ -66,8 +84,9 @@ Context files are saved reference files you can add to any prompt, separate from
 guidelines, architecture notes, example code, a glossary, "how to answer" instructions. Any text file works
 (`.md`, `.txt`, `.cs`, `.ts`, `.json`…). Tick them in the **Context** list of the right panel.
 
-Add files with **Context → Add file…** (they're copied into the library; the same block list and 1 MB limit as
-project files apply, and they're secret-scanned on every copy), or drop files into the folders directly:
+Create them with **Context → New** (write or paste the content), **Context → Import…** (copy existing files;
+the same block list and 1 MB limit as project files apply, and they're secret-scanned on every copy), or drop
+files into the folders directly:
 
 1. `<project>/.yaz/context/`: this project only; commit it to share with the team
 2. `~/.yaz/context/` (Windows: `%USERPROFILE%\.yaz\context\`): all your projects
@@ -80,8 +99,8 @@ a `description:` in YAML frontmatter, which is shown in the list and left out of
 
 A preset is a ready-made combination of a **skill**, **context files** and an optional **task template**, for the
 cases you hit again and again. Choosing one sets the skill, ticks its context files, and fills the task box with the
-template if it's empty. **Save as preset…** stores your current skill + context (and optionally the task) as a new
-preset. Presets are Markdown files:
+template if it's empty. **Save current…** stores your current skill + context (and optionally the task) as a new
+preset, and **New** / **Edit** open it in the Library. Presets are Markdown files:
 
 ```markdown
 ---
@@ -99,7 +118,7 @@ Steps to reproduce:
 
 They're loaded from `<project>/.yaz/presets/`, `~/.yaz/presets/`, and the built-in set: *.NET bug fix*,
 *Node.js bug fix*, *Code review*, *.NET unit tests*, *EF Core model change*, *Security audit*,
-*Explain to a newcomer*. The **⋯** menu opens the preset folders.
+*Explain to a newcomer*.
 
 ## Safety
 
@@ -154,7 +173,8 @@ npm run dev
 | `npm run dist:win` | Windows installer (`release/*.exe`); run on Windows or CI |
 | `npm run dist:mac` | macOS `.dmg` (universal); run on a Mac or CI |
 
-`YAZ_USER_DATA=<folder>` runs the app with a separate profile.
+`YAZ_USER_DATA=<folder>` runs the app with a separate profile, and `YAZ_HOME=<folder>` uses another folder in place
+of your home for `~/.yaz` and `~/.claude/skills` (the smoke test uses both).
 `YAZ_EXECUTABLE=<app binary> node scripts/smoke.mjs` runs the smoke test against a packaged build.
 
 ### Layout

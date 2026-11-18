@@ -107,6 +107,38 @@ export interface PresetInput {
 
 export type LibraryKind = 'skills' | 'context' | 'presets'
 
+/** Everything needed to show and edit one skill, context file or preset. */
+export interface LibraryItemDetail {
+  kind: LibraryKind
+  id: string
+  name: string
+  description: string
+  /** Skill instructions, context file content, or a preset's task template. */
+  body: string
+  /** Presets only. */
+  skill: string | null
+  /** Presets only. */
+  context: string[]
+  source: SkillSource
+  /** Built-in items are read-only; duplicate them to edit. */
+  editable: boolean
+  /** Where the item lives on disk, for display. */
+  location: string
+}
+
+export interface LibraryItemInput {
+  kind: LibraryKind
+  /** The item being edited, or null to create a new one. */
+  originalId: string | null
+  /** Where a new item is saved. Ignored when editing. */
+  scope: LibraryScope
+  name: string
+  description: string
+  body: string
+  skill: string | null
+  context: string[]
+}
+
 export interface AddContextResult {
   added: string[]
   skipped: { name: string; reason: string }[]
@@ -166,6 +198,10 @@ export interface YazApi {
   /** Shows a file dialog and copies the chosen files into the context library. */
   addContextFiles(scope: LibraryScope): Promise<AddContextResult>
   savePreset(input: PresetInput): Promise<Preset>
+  getLibraryItem(kind: LibraryKind, id: string): Promise<LibraryItemDetail>
+  saveLibraryItem(input: LibraryItemInput): Promise<LibraryItemDetail>
+  /** Moves the item to the OS trash (a skill's whole folder). */
+  deleteLibraryItem(kind: LibraryKind, id: string): Promise<void>
   deletePreset(id: string): Promise<void>
   /** Opens the library folder in Explorer / Finder (creating it if needed). */
   openLibraryFolder(scope: LibraryScope, kind: LibraryKind): Promise<void>

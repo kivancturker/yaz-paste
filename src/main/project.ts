@@ -1,10 +1,14 @@
 import { promises as fs } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
-import { app } from 'electron'
+import { app, shell } from 'electron'
 import {
   addContextFile,
   buildContextSection,
+  isInside,
+  readContextForEdit,
+  writeContext,
+  writeSkill,
   loadContextItems,
   loadPresets,
   writePreset,
@@ -24,6 +28,8 @@ import type {
   FileContent,
   FileEntry,
   FileSelection,
+  LibraryItemDetail,
+  LibraryItemInput,
   LibraryKind,
   LibraryScope,
   Preset,
@@ -37,6 +43,11 @@ import { FileReader } from '../tools/code/files'
 import { scanProject } from '../tools/code/scan'
 import { loadProjectState } from './store'
 
+/** The user's home for the library (`~/.yaz`, `~/.claude/skills`). YAZ_HOME overrides it for tests. */
+function userHome(): string {
+  return process.env['YAZ_HOME'] ? resolve(process.env['YAZ_HOME']) : homedir()
+}
+
 /** Folder holding the app's built-in skills, context files and presets. */
 function builtInDir(name: string): string {
   return app.isPackaged ? join(process.resourcesPath, name) : join(app.getAppPath(), name)
@@ -49,6 +60,7 @@ export class Project {
   private reader: FileReader
   private info: Omit<ProjectInfo, 'state'> | null = null
   private skillFiles = new Map<string, string>()
+  private skills: (SkillInfo & { file: string })[] = []
   private contextItems: LoadedContextItem[] = []
   private presets: LoadedPreset[] = []
 
@@ -91,7 +103,7 @@ export class Project {
 
   /** Where each kind of library item is stored for a scope. Skills follow the Claude Code layout. */
   libraryDir(scope: LibraryScope, kind: LibraryKind): string {
-    const base = scope === 'project' ? this.root : homedir()
+    const base = scope === 'project' ? this.root : userHome()
     return kind === 'skills' ? join(base, '.claude', 'skills') : join(base, '.yaz', kind)
   }
 
@@ -103,14 +115,19 @@ export class Project {
     ]
   }
 
-  async listSkills(): Promise<SkillInfo[]> {
-    const skills = await loadSkills([
+  private skillDirs(): { dir: string; source: 'project' | 'user' | 'built-in' }[] {
+    return [
       { dir: this.libraryDir('project', 'skills'), source: 'project' },
       { dir: join(this.root, '.agents', 'skills'), source: 'project' },
       { dir: this.libraryDir('user', 'skills'), source: 'user' },
-      { dir: join(homedir(), '.agents', 'skills'), source: 'user' },
+      { dir: join(userHome(), '.agents', 'skills'), source: 'user' },
       { dir: builtInDir('skills'), source: 'built-in' }
-    ])
+    ]
+  }
+
+  async listSkills(): Promise<SkillInfo[]> {
+    const skills = await loadSkills(this.skillDirs())
+    this.skills = skills
     this.skillFiles = new Map(skills.map((s) => [s.id, s.file]))
     return skills.map(({ file: _file, ...info }) => info)
   }
@@ -159,14 +176,118 @@ export class Project {
   }
 
   async deletePreset(id: string): Promise<void> {
-    await this.listPresets()
-    const preset = this.presets.find((p) => p.id === id)
-    if (!preset) throw new Error('Preset not found')
-    if (preset.source === 'built-in') throw new Error("Built-in presets can't be deleted")
-    // only ever delete inside the preset folders
-    const allowed = [this.libraryDir('project', 'presets'), this.libraryDir('user', 'presets')].map((d) => resolve(d))
-    if (!allowed.includes(resolve(preset.file, '..'))) throw new Error('Preset is outside the preset folders')
-    await fs.unlink(preset.file)
+    await this.deleteLibraryItem('presets', id)
+  }
+
+  // ---- creating, editing and deleting library items ------------------------------------------
+
+  /** Folders the app may write to for a kind (never the built-in ones). */
+  private writableDirs(kind: LibraryKind): string[] {
+    if (kind === 'skills') return this.skillDirs().filter((d) => d.source !== 'built-in').map((d) => d.dir)
+    return [this.libraryDir('project', kind), this.libraryDir('user', kind)]
+  }
+
+  private assertWritable(kind: LibraryKind, path: string): void {
+    if (!this.writableDirs(kind).some((dir) => isInside(path, dir) && resolve(path) !== resolve(dir))) {
+      throw new Error('That item is not in one of your library folders')
+    }
+  }
+
+  /** The loaded item with its file, refreshed from disk. */
+  private async findItem(kind: LibraryKind, id: string): Promise<{ file: string; source: 'project' | 'user' | 'built-in' }> {
+    if (typeof id !== 'string') throw new Error('Invalid id')
+    if (kind === 'skills') {
+      await this.listSkills()
+      const s = this.skills.find((x) => x.id === id)
+      if (s) return { file: s.file, source: s.source }
+    } else if (kind === 'context') {
+      await this.listContext()
+      const c = this.contextItems.find((x) => x.id === id)
+      if (c) return { file: c.file, source: c.source }
+    } else if (kind === 'presets') {
+      await this.listPresets()
+      const p = this.presets.find((x) => x.id === id)
+      if (p) return { file: p.file, source: p.source }
+    }
+    throw new Error('Not found in the library')
+  }
+
+  async getLibraryItem(kind: LibraryKind, id: string): Promise<LibraryItemDetail> {
+    const { file, source } = await this.findItem(kind, id)
+    const base = { kind, id, source, editable: source !== 'built-in', location: file, skill: null, context: [] as string[] }
+    if (kind === 'skills') {
+      const skill = this.skills.find((s) => s.id === id)!
+      return { ...base, name: skill.name, description: skill.description, body: (await readSkillBody(file)).replace(/^\n+/, '') }
+    }
+    if (kind === 'context') {
+      const { description, body } = await readContextForEdit(file)
+      return { ...base, name: id.split('/').pop() ?? id, description, body }
+    }
+    const preset = this.presets.find((p) => p.id === id)!
+    return { ...base, name: preset.name, description: preset.description, body: preset.task, skill: preset.skill, context: preset.context }
+  }
+
+  async saveLibraryItem(input: LibraryItemInput): Promise<LibraryItemDetail> {
+    if (!input || !['skills', 'context', 'presets'].includes(input.kind)) throw new Error('Invalid library item')
+    const kind = input.kind
+    const scope: LibraryScope = input.scope === 'project' ? 'project' : 'user'
+    const fields = {
+      name: String(input.name ?? ''),
+      description: String(input.description ?? ''),
+      body: String(input.body ?? '')
+    }
+    let existing: { file: string; source: 'project' | 'user' | 'built-in' } | null = null
+    if (input.originalId) {
+      existing = await this.findItem(kind, input.originalId)
+      if (existing.source === 'built-in') throw new Error('Built-in items are read-only. Duplicate it to make your own copy.')
+      this.assertWritable(kind, existing.file)
+    }
+
+    // never silently replace another item with the same name in the same place
+    const targetSource = existing ? existing.source : scope
+    if (kind !== 'context') {
+      const list = kind === 'skills' ? (await this.listSkills(), this.skills) : (await this.listPresets(), this.presets)
+      const clash = list.find((x) => x.id === fields.name.trim() && x.source === targetSource && x.file !== existing?.file)
+      if (clash) throw new Error(`A ${kind === 'skills' ? 'skill' : 'preset'} named "${clash.id}" already exists there`)
+    }
+
+    let id: string
+    if (kind === 'skills') {
+      await writeSkill(this.libraryDir(scope, 'skills'), fields, existing?.file)
+      id = fields.name.trim()
+    } else if (kind === 'context') {
+      // an existing file keeps its own folder root (project or user)
+      const root = existing ? this.writableDirs('context').find((d) => isInside(existing!.file, d))! : this.libraryDir(scope, 'context')
+      id = await writeContext(root, fields, existing ?? undefined)
+    } else {
+      await this.listPresets()
+      const presetScope: LibraryScope = existing ? (existing.source === 'project' ? 'project' : 'user') : scope
+      await writePreset(
+        this.libraryDir(presetScope, 'presets'),
+        {
+          ...fields,
+          task: fields.body,
+          skill: typeof input.skill === 'string' && input.skill ? input.skill : null,
+          context: Array.isArray(input.context) ? input.context.filter((c) => typeof c === 'string') : [],
+          scope: presetScope
+        },
+        this.presets,
+        existing?.file
+      )
+      id = fields.name.trim()
+    }
+    return this.getLibraryItem(kind, id)
+  }
+
+  async deleteLibraryItem(kind: LibraryKind, id: string): Promise<void> {
+    const item = await this.findItem(kind, id)
+    if (item.source === 'built-in') throw new Error("Built-in items can't be deleted")
+    // a skill is its whole folder (SKILL.md plus any extra files)
+    const target = kind === 'skills' ? resolve(item.file, '..') : item.file
+    this.assertWritable(kind, target)
+    // YAZ_NO_TRASH is for automated tests, so they don't fill the real trash
+    if (process.env['YAZ_NO_TRASH']) await fs.rm(target, { recursive: true, force: true })
+    else await shell.trashItem(target)
   }
 
   // ---- composing -----------------------------------------------------------------------------
