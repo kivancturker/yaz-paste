@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FileEntry, FileSelection } from '../../../shared/types'
 import { formatRanges, countRangeLines } from '../../../shared/ranges'
+import { ChevronIcon, FileIcon, FolderIcon } from './Icons'
 import { buildTree, folderStats, formatTokens, makeFilter, parentDirs, type DirNode, type TreeNode } from '../lib/tree'
 
 interface Props {
@@ -152,7 +153,9 @@ export function FileTree({ files, selection, activePath, tokens, onToggleFile, o
             const isOpen = Boolean(matches) || expanded.has(node.path)
             return (
               <div key={node.path} className="row dir" style={pad} role="treeitem" aria-expanded={isOpen} onClick={() => toggleExpand(node.path)}>
-                <span className="chevron">{isOpen ? '▾' : '▸'}</span>
+                <span className="chevron">
+                  <ChevronIcon open={isOpen} />
+                </span>
                 <TriCheckbox
                   label={`Tick folder ${node.path}`}
                   checked={s.tickable > 0 && s.selected === s.tickable}
@@ -160,6 +163,7 @@ export function FileTree({ files, selection, activePath, tokens, onToggleFile, o
                   disabled={s.tickable === 0}
                   onChange={() => toggleDir(node.path)}
                 />
+                <FolderIcon open={isOpen} />
                 <span className="name">{node.name}</span>
                 {s.selected > 0 && <span className="count">{s.selected}</span>}
               </div>
@@ -185,6 +189,7 @@ export function FileTree({ files, selection, activePath, tokens, onToggleFile, o
                 disabled={locked}
                 onChange={() => onToggleFile(node.path)}
               />
+              <FileIcon name={node.name} />
               <span className="name">{node.name}</span>
               {locked && <span className="badge lock" title={entry.reason}>🔒</span>}
               {entry.sensitive && <span className="badge shield" title="Config file that often holds secrets. Always scanned before copying.">🛡</span>}

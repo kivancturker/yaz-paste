@@ -11,9 +11,15 @@ XML or Markdown prompt to the clipboard. Secrets are redacted before anything re
    `yaz-paste C:\code\Shop`. The last project reopens automatically.
 2. **Tick files** in the tree. Ticking a folder ticks everything under it. The filter box accepts text
    (`Order`) or globs (`src/**/*.cs`), and **Tick all shown** selects every match.
-3. **Pick lines (optional)**: click a file to open it in the viewer. Click or drag the **line numbers** to include
-   only those lines. Shift-click extends the range; Ctrl/⌘-click adds another range or removes a line.
-   **Use text selection** turns the text you selected in the editor into ranges. **Whole file** switches back.
+3. **Pick lines (optional)**: click a file to open it in the viewer, then any of:
+   - **Selection strip** (left of the line numbers): drag to add a range. Each range shows as a bar; drag its
+     round handles to move the first/last line, drag the bar to move it, and hover it for **×** to remove it
+     (or double-click it). Shift-click extends the nearest range. Dragging near the top/bottom edge scrolls.
+   - **Lines field** in the toolbar: type `10-25, 40` and press Enter.
+   - **Line numbers**: click/drag to replace the selection, Shift-click to extend, Ctrl/⌘-click to add or remove.
+   - **From text selection**: turns the text you selected in the editor into ranges.
+
+   **Whole file** switches back to including all of it.
 4. **Choose a skill** and **write the task**.
 5. **Copy prompt** (`Ctrl/⌘+Shift+C`) or **Preview** (`Ctrl/⌘+Shift+P`).
 

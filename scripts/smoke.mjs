@@ -92,8 +92,55 @@ try {
   await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 5 })
   await page.mouse.up()
   await page.waitForTimeout(200)
-  check((await page.locator('.viewer .status').textContent()).includes('Lines 7-15'), 'gutter drag selects lines 7-15')
+  const status = () => page.locator('.viewer .status').textContent()
+  check((await status()).includes('Lines 7-15'), 'line-number drag selects lines 7-15')
   check((await page.locator('.yaz-line-selected').count()) > 0, 'selected lines are highlighted')
+
+  // selection rail: paint a new range, resize it with its handle, move it, remove it
+  const rail = await page.locator('.rail').boundingBox()
+  const railX = rail.x + rail.width / 2
+  const lineY = async (n) => {
+    const box = await lineNumber(n).boundingBox()
+    return box.y + box.height / 2
+  }
+  const drag = async (fromY, toY) => {
+    await page.mouse.move(railX, fromY)
+    await page.mouse.down()
+    await page.mouse.move(railX, toY, { steps: 6 })
+    await page.mouse.up()
+    await page.waitForTimeout(150)
+  }
+  await page.locator('.range-field input').fill('')
+  await page.locator('.range-field input').press('Enter')
+  await page.locator('.row.file', { hasText: 'OrderService.cs' }).locator('input[type=checkbox]').uncheck()
+  await drag(await lineY(2), await lineY(4))
+  check((await status()).includes('Lines 2-4'), 'dragging in the rail picks lines 2-4')
+  check((await page.locator('.rail-range').count()) === 1, 'rail shows a bar for the range')
+  const bottomHandle = await page.locator('.rail-handle.bottom').boundingBox()
+  await page.mouse.move(bottomHandle.x + bottomHandle.width / 2, bottomHandle.y + bottomHandle.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(railX, await lineY(6), { steps: 6 })
+  await page.mouse.up()
+  await page.waitForTimeout(150)
+  check((await status()).includes('Lines 2-6'), 'dragging the bottom handle resizes to 2-6')
+  // grab the middle of the 2-6 bar (line 4) and drop it on line 12
+  await drag(await lineY(4), await lineY(12))
+  check((await status()).includes('Lines 10-14'), 'dragging the bar moves the range to 10-14')
+  await drag(await lineY(2), await lineY(3))
+  check((await status()).includes('Lines 2-3, 10-14'), 'a second rail drag adds another range')
+  await page.locator('.rail-range').first().hover()
+  await page.locator('.rail-remove').first().click()
+  await page.waitForTimeout(150)
+  check((await status()).includes('Lines 10-14') && !(await status()).includes('2-3'), '× removes a range')
+  await page.screenshot({ path: join(shots, '0-rail.png') })
+
+  // typed ranges
+  await page.locator('.range-field input').fill('abc')
+  await page.locator('.range-field input').press('Enter')
+  check((await page.locator('.range-field.invalid').count()) === 1, 'invalid typed ranges are flagged')
+  await page.locator('.range-field input').fill('7-15')
+  await page.locator('.range-field input').press('Enter')
+  check((await status()).includes('Lines 7-15'), 'typing 7-15 selects those lines')
 
   // skill + task
   await page.locator('#skill').selectOption('bug-fix')

@@ -70,3 +70,24 @@ export function withLineNumbers(lines: string[]): string {
   const width = String(lines.length).length
   return lines.map((line, i) => `${String(i + 1).padStart(width, ' ')}: ${line}`).join('\n')
 }
+
+/**
+ * Parses typed ranges like "7-15, 20, 30–40" (spaces, en dashes and `..` are fine).
+ * Returns null when any part isn't a valid line or range.
+ */
+export function parseRanges(text: string, maxLine = Number.MAX_SAFE_INTEGER): LineRange[] | null {
+  const parts = text
+    .split(/[,;\s]+/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+  const ranges: LineRange[] = []
+  for (const part of parts) {
+    const m = /^(\d+)(?:\s*(?:-|–|—|\.\.)\s*(\d+))?$/.exec(part)
+    if (!m) return null
+    const a = Number(m[1])
+    const b = m[2] === undefined ? a : Number(m[2])
+    if (a < 1 || b < 1) return null
+    ranges.push([a, b])
+  }
+  return normalizeRanges(ranges, maxLine)
+}

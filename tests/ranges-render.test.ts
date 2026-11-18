@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addRange, formatRanges, normalizeRanges, removeRange, renderRanges, splitLines } from '../src/shared/ranges'
+import { addRange, formatRanges, normalizeRanges, parseRanges, removeRange, renderRanges, splitLines } from '../src/shared/ranges'
 import { fenceFor, renderPrompt, renderTree } from '../src/core/render'
 import type { ContextSection } from '../src/core/context'
 
@@ -88,5 +88,20 @@ describe('prompt', () => {
   it('omits empty skill and task', () => {
     const out = renderPrompt({ sections: [], skill: null, task: '   ', format: 'xml' })
     expect(out).toBe('\n')
+  })
+})
+
+describe('parseRanges', () => {
+  it('parses typed ranges', () => {
+    expect(parseRanges('7-15, 20 30–40')).toEqual([[7, 15], [20, 20], [30, 40]])
+    expect(parseRanges('15-7,8..9')).toEqual([[7, 15]])
+    expect(parseRanges('1-500', 120)).toEqual([[1, 120]])
+    expect(parseRanges('')).toEqual([])
+  })
+
+  it('rejects invalid input', () => {
+    expect(parseRanges('abc')).toBeNull()
+    expect(parseRanges('0-3')).toBeNull()
+    expect(parseRanges('5-')).toBeNull()
   })
 })
