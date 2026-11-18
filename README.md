@@ -201,4 +201,11 @@ must allow the app once in *System Settings → Privacy & Security → Open Anyw
 (`CSC_LINK`, `CSC_KEY_PASSWORD`, and for macOS notarization `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`)
 as CI secrets and remove `CSC_IDENTITY_AUTO_DISCOVERY: 'false'` from the workflow.
 
+### CI
+
+A GitHub Actions workflow (typecheck, unit tests and the smoke test on Windows and macOS; installers on `v*` tags)
+is kept as an inactive template in [`docs/ci-workflow.yml`](docs/ci-workflow.yml). To turn it on, move it to
+`.github/workflows/ci.yml` and push with a GitHub login that has the `workflow` scope
+(`gh auth refresh -h github.com -s workflow`).
+
 See [PLAN.md](PLAN.md) for the roadmap, including future tools such as the database schema tool.

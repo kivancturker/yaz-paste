@@ -23,7 +23,7 @@ Added after the MVP: **context files** (saved reference files in `.yaz/context` 
 rendered as `<additional_context>`) and **presets** (skill + context + task template in `.yaz/presets` /
 `~/.yaz/presets` / built-in), plus the line-selection rail and folder/file icons.
 
-Not yet verified: running on Windows (CI workflow is written but hasn't run), signed installers.
+Not yet verified: running on Windows (the CI workflow is written but not enabled: it's kept as `docs/ci-workflow.yml` until it's pushed with a login that has the `workflow` scope), signed installers.
 Pulled forward from v1: glob filter + tick-all-shown, Markdown output, directory tree option.
 
 ---
