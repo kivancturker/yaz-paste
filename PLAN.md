@@ -2,10 +2,10 @@
 
 A desktop toolbox that builds prompts for AI chats. Each tool gathers one kind of context
 (code, and later database schemas and more), and one shared composer turns it into a structured
-XML prompt with a skill and your task. It never puts secrets on the clipboard by accident.
+XML prompt with your skills and task. It never puts secrets on the clipboard by accident.
 
 **Tool #1 (build now): Code Context.** Open a folder, tick files (or selected lines), write what you want,
-pick a skill, copy.
+tick one or more skills, copy.
 
 **Target environment:** Windows (most users) and macOS. The main projects are .NET, and Node.js projects are supported too.
 
@@ -20,8 +20,15 @@ token estimate with a 200k meter; per-project state; recent projects; menu short
 unit tests and an end-to-end smoke test (passes on the dev build and on a packaged macOS app).
 
 Added after the MVP: **context files** (saved reference files in `.yaz/context` / `~/.yaz/context` / built-in,
-rendered as `<additional_context>`) and **presets** (skill + context + task template in `.yaz/presets` /
+rendered as `<additional_context>`) and **presets** (skills + context + task template in `.yaz/presets` /
 `~/.yaz/presets` / built-in), plus the line-selection rail and folder/file icons.
+
+**Diff tool (built 2026-11-19)**: a second tool tab. Paste an AI answer, see its diffs side by side or inline, and copy the
+full rebuilt files, so the AI only has to write diffs. See "Tool #2: Diff" below.
+
+**Several skills per prompt (2026-11-19)**: skills are ticked like context files and rendered as one `<skill>` block
+each, in the order ticked (reorderable). "What to do" skills (`bug-fix`) combine with "how to answer" skills (`diff-patch`).
+Presets store `skills:` as a list (a single `skill:` is still read), and saved project state with one `skillId` is migrated.
 
 Not yet verified: running on Windows (the CI workflow is written but not enabled: it's kept as `docs/ci-workflow.yml` until it's pushed with a login that has the `workflow` scope), signed installers.
 Pulled forward from v1: glob filter + tick-all-shown, Markdown output, directory tree option.
@@ -130,7 +137,7 @@ Every tool is a **context source** that produces context blocks. Everything afte
 
 ```
 [Code tool]  ─┐
-[DB tool]    ─┼─► ContextBlocks ─► Composer (skill + task) ─► Secret scan ─► XML render ─► Token count ─► Clipboard
+[DB tool]    ─┼─► ContextBlocks ─► Composer (skills + task) ─► Secret scan ─► XML render ─► Token count ─► Clipboard
 [future...]  ─┘
 ```
 
@@ -248,7 +255,7 @@ This means skills you already wrote for Claude Code work here, and skills made i
 The app pastes the frontmatter `name` + the body. Extra files in the skill folder are listed and can optionally be included.
 
 **Built-in skills, ready to use:** `bug-fix`, `code-review`, `write-tests` (xUnit / Jest aware), `refactor`, `explain-code`,
-`add-feature`, `ef-core-migration`, `security-review`.
+`add-feature`, `ef-core-migration`, `security-review`, `diff-patch` (answers only with exact unified diffs for the Diff tool).
 
 The app also includes a simple skill editor (create/edit/duplicate), and you choose where to save: project or user.
 
@@ -298,9 +305,38 @@ The app also includes a simple skill editor (create/edit/duplicate), and you cho
 - Git mode: changed files, or `git diff` instead of whole files
 - Codemap: signatures only, via `web-tree-sitter` (WASM, so no native build; has C# and TS grammars), for unticked files
 - Follow references: suggest files related to the selection (`using`/`import` graph, DI registrations)
-- Apply back: paste the AI's reply, parse the diffs, review, apply
+- Apply back: paste the AI's reply, parse the diffs, review, apply → the review part is built as the Diff tool (below); writing to disk is next
 
 ---
+
+## Tool #2: Diff (built)
+
+The AI answers with unified diffs only (the built-in `diff-patch` skill asks for exactly the format the tool reads best:
+verbatim context, excerpt line numbers stripped, 3+ lines of unique context; a test keeps its example parseable;
+the shorter `answer-with-diffs` context file works with other skills); the app turns them back into
+full files. That saves output tokens and avoids the AI writing the same code twice (and the two copies drifting apart).
+
+- `src/tools/diff/parse.ts`: finds diffs in a pasted answer: Markdown fences (also indented in lists), raw `git diff`,
+  `diff --git` extended headers (new/deleted/renamed/binary), hunks with or without line numbers, wrong hunk counts,
+  blank context lines without their leading space, `\ No newline at end of file`, CRLF, Windows paths.
+- `src/tools/diff/apply.ts`: strict applier. **A hunk is applied only where all of its context + removed lines are found.**
+  Line numbers are only used to choose between identical blocks, and only when they point at one exactly.
+  Tiers: exact → ignoring trailing whitespace → ignoring indentation (flagged). Context lines in the output always come
+  from the file. Any hunk that can't be placed fails the whole file (no partial output). Detects already-applied changes.
+- `src/tools/diff/resolve.ts`: diff path → project file (`a/`/`b/` prefixes, case, unique suffix), groups blocks per file.
+- UI (`DiffTool.tsx`): paste box + file list with status, Monaco diff editor (side by side / inline, computed from the
+  real old and new file), Full code view, Copy full file, explanations per change, and the raw hunks when a diff can't apply.
+- Guarantee, checked by a fuzz test against real `git diff` output (including shifted and stripped line numbers):
+  "Ready" is never wrong; anything uncertain is either flagged ("Check") or refused.
+
+### Diff tool: next steps (it will grow)
+- **Apply to disk**: write the rebuilt files into the project (with a confirmation listing the files; undo via a backup).
+- **Resolve by hand**: when a hunk can't be placed or a block repeats, let the user pick the place in the file.
+- **Copy all**: every rebuilt file in one go (as prompt-style `<file>` blocks or a zip).
+- **Git mode**: show `git diff` of the working tree / a commit range in the same viewer (shares parse + view).
+- **Full-file answers**: accept "here is the whole new file" blocks next to diffs and show them as a diff too.
+- **Other formats**: `*** Begin Patch` style patches, search/replace blocks.
+- **Send back**: when a diff can't apply, one click builds a follow-up prompt with the current file and the error.
 
 ## Future tools (planned, NOT implemented yet)
 

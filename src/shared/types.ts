@@ -28,7 +28,8 @@ export type TreeMode = 'selected' | 'full' | 'none'
 export interface ProjectState {
   selection: Record<string, FileSelection>
   task: string
-  skillId: string | null
+  /** Ticked skills, in the order they go into the prompt. */
+  skillIds: string[]
   format: OutputFormat
   treeMode: TreeMode
   wholeFileLineNumbers: boolean
@@ -83,13 +84,14 @@ export interface ContextItem {
   size: number
 }
 
-/** A ready-made combination of a skill, context files and an optional task template. */
+/** A ready-made combination of skills, context files and an optional task template. */
 export interface Preset {
   /** Unique id: the preset's name. */
   id: string
   name: string
   description: string
-  skill: string | null
+  /** Skill ids, in prompt order. */
+  skills: string[]
   context: string[]
   /** Filled into the task box when it's empty. */
   task: string
@@ -99,7 +101,7 @@ export interface Preset {
 export interface PresetInput {
   name: string
   description: string
-  skill: string | null
+  skills: string[]
   context: string[]
   task: string
   scope: LibraryScope
@@ -116,7 +118,7 @@ export interface LibraryItemDetail {
   /** Skill instructions, context file content, or a preset's task template. */
   body: string
   /** Presets only. */
-  skill: string | null
+  skills: string[]
   /** Presets only. */
   context: string[]
   source: SkillSource
@@ -135,7 +137,7 @@ export interface LibraryItemInput {
   name: string
   description: string
   body: string
-  skill: string | null
+  skills: string[]
   context: string[]
 }
 
@@ -148,7 +150,8 @@ export interface ComposeRequest {
   selection: Record<string, FileSelection>
   contextIds: string[]
   task: string
-  skillId: string | null
+  /** Skills in prompt order. */
+  skillIds: string[]
   format: OutputFormat
   treeMode: TreeMode
   wholeFileLineNumbers: boolean
@@ -209,6 +212,8 @@ export interface YazApi {
   compose(req: ComposeRequest): Promise<ComposeResult>
   copy(req: ComposeRequest): Promise<ComposeResult>
   saveState(state: ProjectState): Promise<void>
+  /** Puts plain text on the clipboard (the Diff tool's rebuilt files). */
+  copyText(text: string): Promise<void>
   onMenu(handler: (command: MenuCommand) => void): () => void
   platform: string
 }

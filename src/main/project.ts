@@ -43,6 +43,11 @@ import { FileReader } from '../tools/code/files'
 import { scanProject } from '../tools/code/scan'
 import { loadProjectState } from './store'
 
+/** A list of non-empty strings from the UI, without duplicates. */
+function cleanList(value: unknown): string[] {
+  return Array.isArray(value) ? [...new Set(value.filter((v): v is string => typeof v === 'string' && v !== ''))] : []
+}
+
 /** The user's home for the library (`~/.yaz`, `~/.claude/skills`). YAZ_HOME overrides it for tests. */
 function userHome(): string {
   return process.env['YAZ_HOME'] ? resolve(process.env['YAZ_HOME']) : homedir()
@@ -163,7 +168,7 @@ export class Project {
     const clean: PresetInput = {
       name: input.name,
       description: String(input.description ?? ''),
-      skill: typeof input.skill === 'string' && input.skill ? input.skill : null,
+      skills: cleanList(input.skills),
       context: Array.isArray(input.context) ? input.context.filter((c) => typeof c === 'string') : [],
       task: String(input.task ?? ''),
       scope
@@ -214,7 +219,7 @@ export class Project {
 
   async getLibraryItem(kind: LibraryKind, id: string): Promise<LibraryItemDetail> {
     const { file, source } = await this.findItem(kind, id)
-    const base = { kind, id, source, editable: source !== 'built-in', location: file, skill: null, context: [] as string[] }
+    const base = { kind, id, source, editable: source !== 'built-in', location: file, skills: [] as string[], context: [] as string[] }
     if (kind === 'skills') {
       const skill = this.skills.find((s) => s.id === id)!
       return { ...base, name: skill.name, description: skill.description, body: (await readSkillBody(file)).replace(/^\n+/, '') }
@@ -224,7 +229,7 @@ export class Project {
       return { ...base, name: id.split('/').pop() ?? id, description, body }
     }
     const preset = this.presets.find((p) => p.id === id)!
-    return { ...base, name: preset.name, description: preset.description, body: preset.task, skill: preset.skill, context: preset.context }
+    return { ...base, name: preset.name, description: preset.description, body: preset.task, skills: preset.skills, context: preset.context }
   }
 
   async saveLibraryItem(input: LibraryItemInput): Promise<LibraryItemDetail> {
@@ -267,7 +272,7 @@ export class Project {
         {
           ...fields,
           task: fields.body,
-          skill: typeof input.skill === 'string' && input.skill ? input.skill : null,
+          skills: cleanList(input.skills),
           context: Array.isArray(input.context) ? input.context.filter((c) => typeof c === 'string') : [],
           scope: presetScope
         },
@@ -292,12 +297,16 @@ export class Project {
 
   // ---- composing -----------------------------------------------------------------------------
 
-  private async skillFor(id: string | null): Promise<{ name: string; body: string } | null> {
-    if (!id) return null
-    if (!this.skillFiles.has(id)) await this.listSkills()
-    const file = this.skillFiles.get(id)
-    if (!file) return null
-    return { name: id, body: await readSkillBody(file) }
+  /** The ticked skills' bodies, in order; unknown ids and duplicates are skipped. */
+  private async skillsFor(ids: unknown): Promise<{ name: string; body: string }[]> {
+    const list = cleanList(ids)
+    if (list.some((id) => !this.skillFiles.has(id))) await this.listSkills()
+    const out: { name: string; body: string }[] = []
+    for (const id of list) {
+      const file = this.skillFiles.get(id)
+      if (file) out.push({ name: id, body: await readSkillBody(file) })
+    }
+    return out
   }
 
   private sanitizeSelection(selection: Record<string, FileSelection>): Record<string, FileSelection> {
@@ -337,7 +346,7 @@ export class Project {
     const { code, context } = await this.build(req, new Set(req.allow ?? []))
     const text = renderPrompt({
       sections: context.section ? [code.section, context.section] : [code.section],
-      skill: await this.skillFor(req.skillId),
+      skills: await this.skillsFor(req.skillIds),
       task: String(req.task ?? ''),
       format: req.format === 'markdown' ? 'markdown' : 'xml'
     })
@@ -377,8 +386,8 @@ export class Project {
       total += perFile[`context/${id}`] + 12
     }
     const tree = code.section.blocks.find((b) => b.tag === 'directory_structure')
-    const skill = await this.skillFor(req.skillId)
-    total += countTokens([tree?.content ?? '', skill?.body ?? '', String(req.task ?? '')].join('\n')) + 20
+    const skills = await this.skillsFor(req.skillIds)
+    total += countTokens([tree?.content ?? '', ...skills.map((s) => s.body), String(req.task ?? '')].join('\n')) + 20 + 10 * skills.length
     if (this.tokenCache.size > 5000) this.tokenCache.clear()
     return { total, perFile }
   }

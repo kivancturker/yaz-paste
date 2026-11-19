@@ -144,15 +144,13 @@ try {
   await page.locator('.range-field input').press('Enter')
   check((await status()).includes('Lines 7-15'), 'typing 7-15 selects those lines')
 
-  // preset: applies a skill + context files + task template
+  // preset: applies skills + context files + task template
   await page.locator('#preset').selectOption('.NET bug fix')
   await page.waitForTimeout(200)
-  check((await page.locator('#skill').inputValue()) === 'bug-fix', 'preset sets the skill')
-  const tickedContext = await page.locator('.context-list li label.on .context-name').allTextContents()
-  check(
-    tickedContext.length === 2 && tickedContext.includes('dotnet-conventions.md') && tickedContext.includes('answer-with-diffs.md'),
-    `preset ticks its context files (${tickedContext.join(', ')})`
-  )
+  const skillOrder = () => page.locator('.composer .skill-chip .chip-name').allTextContents()
+  check((await skillOrder()).join(' ') === '1. bug-fix 2. diff-patch', `preset ticks its skills in order (${(await skillOrder()).join(', ')})`)
+  const tickedContext = await page.locator('.composer .context-list:not(.skill-list) li label.on .context-name').allTextContents()
+  check(tickedContext.join(',') === 'dotnet-conventions.md', `preset ticks its context files (${tickedContext.join(', ')})`)
   check((await page.locator('#task').inputValue()).includes('Steps to reproduce'), 'preset fills the empty task with its template')
   await page.locator('#task').fill('Creating an order with no items throws. Fix it.')
 
@@ -187,8 +185,14 @@ try {
   check(clip.includes('Password=[REDACTED:connection-string-password];') && !clip.includes('Hunter2x'), 'connection string password redacted')
   check(!clip.includes('sk_live_x'), '.env never included')
   check(clip.includes('<skill name="bug-fix">') && clip.trimEnd().endsWith('</task>'), 'skill and task come last')
-  const order = ['</project>', '<additional_context>', '<document name="dotnet-conventions.md">', '<skill name=', '<task>'].map((t) => clip.indexOf(t))
-  check(order.every((pos, i) => pos >= 0 && (i === 0 || pos > order[i - 1])), 'order: project, additional context, skill, task')
+  const order = ['</project>', '<additional_context>', '<document name="dotnet-conventions.md">', '<skill name="bug-fix">', '<skill name="diff-patch">', '<task>'].map((t) => clip.indexOf(t))
+  check(order.every((pos, i) => pos >= 0 && (i === 0 || pos > order[i - 1])), 'order: project, additional context, skills in ticked order, task')
+  await page.screenshot({ path: join(shots, '12-two-skills.png') })
+  await page.locator('.composer button[aria-label="Move diff-patch earlier"]').click()
+  check((await skillOrder()).join(' ') === '1. diff-patch 2. bug-fix', 'the order chips move a skill earlier')
+  const reordered = (await page.evaluate(() => window.api.compose({ selection: {}, contextIds: [], task: 't', skillIds: ['diff-patch', 'bug-fix'], format: 'xml', treeMode: 'none', wholeFileLineNumbers: false }))).text
+  check(reordered.indexOf('<skill name="diff-patch">') < reordered.indexOf('<skill name="bug-fix">'), 'the prompt follows the new order')
+  await page.locator('.composer button[aria-label="Move diff-patch later"]').click()
   check((await page.locator('.findings li').count()) === 1, 'review panel lists the redacted secret')
   await page.screenshot({ path: join(shots, '2-copied.png') })
 
@@ -265,19 +269,20 @@ try {
   check(existsSync(skillFile) && readFileSync(skillFile, 'utf8').includes('Answer in one sentence.'), 'New skill is written to ~/.claude/skills/smoke-skill/SKILL.md')
   await page.locator('.library-modal button', { hasText: 'Use this skill' }).click()
   await page.waitForTimeout(200)
-  check((await page.locator('#skill').inputValue()) === 'smoke-skill', '"Use this skill" selects it')
+  check((await skillOrder()).join(' ') === '1. bug-fix 2. diff-patch 3. smoke-skill', '"Use this skill" ticks it, after the others')
 
   await section('Preset').locator('button', { hasText: 'New' }).click()
   await page.waitForSelector('.library-modal')
   await page.waitForTimeout(200)
-  check((await field('Skill').inputValue()) === 'smoke-skill', 'a new preset starts from the current skill')
+  const presetSkills = await page.locator('.library-editor .skill-chip .chip-name').allTextContents()
+  check(presetSkills.join(' ') === '1. bug-fix 2. diff-patch 3. smoke-skill', `a new preset starts from the current skills (${presetSkills.join(', ')})`)
   await field('Name').fill('Smoke combo')
   await field('Task template').fill('Explain:')
   await page.locator('.library-modal button.primary', { hasText: 'Create preset' }).click()
   await page.waitForTimeout(400)
   const comboFile = join(home, '.yaz', 'presets', 'smoke-combo.md')
   const combo = existsSync(comboFile) ? readFileSync(comboFile, 'utf8') : ''
-  check(combo.includes('skill: smoke-skill') && combo.includes('team-rules.md') && combo.includes('Explain:'), 'New preset saves skill, context and task template')
+  check(combo.includes('skills:\n  - bug-fix\n  - diff-patch\n  - smoke-skill\n') && combo.includes('team-rules.md') && combo.includes('Explain:'), 'New preset saves skills (in order), context and task template')
   await page.screenshot({ path: join(shots, '6-library-preset.png') })
   await page.locator('.library-modal button', { hasText: 'Apply preset' }).click()
   await page.waitForTimeout(200)
@@ -308,6 +313,85 @@ try {
   await page.waitForTimeout(400)
   check(!existsSync(join(home, '.claude', 'skills', 'smoke-skill')), 'Delete removes the skill folder')
   await page.locator('.library-modal .modal-head button', { hasText: 'Close' }).click()
+
+  // ---- Diff tool: paste an AI answer, see the changes, copy the rebuilt file ----
+  await page.locator('.tool-tabs button', { hasText: 'Diff' }).click()
+  await page.waitForSelector('.diff-textarea')
+  const answer = [
+    'The average divides by zero for empty orders. Guard it, and log the order:',
+    '',
+    '```diff',
+    '--- a/src/Shop.Api/Services/OrderService.cs',
+    '+++ b/src/Shop.Api/Services/OrderService.cs',
+    '@@ -8,5 +8,8 @@ public class OrderService(ShopDbContext db)', // wrong line counts, like AIs often write
+    '     {',
+    '+        if (cmd.Items.Count == 0)',
+    '+            throw new ValidationException("An order needs at least one item.");',
+    '         var total = cmd.Items.Sum(i => i.Price * i.Quantity);',
+    '-        var average = total / cmd.Items.Count; // bug: divides by zero',
+    '+        var average = total / cmd.Items.Count;',
+    '         var order = new Order { Total = total, Average = average };',
+    '```',
+    '',
+    'And a line in Program.cs that the AI imagined:',
+    '',
+    '```diff',
+    '--- a/src/Shop.Api/Program.cs',
+    '+++ b/src/Shop.Api/Program.cs',
+    '@@ -1,3 +1,3 @@',
+    ' var builder = WebApplication.CreateBuilder(args);',
+    '-var app = builder.Build(options);',
+    '+var app = builder.Build(options, validate: true);',
+    ' app.MapControllers();',
+    '```'
+  ].join('\n')
+  await page.locator('.diff-textarea').fill(answer)
+  await page.waitForSelector('.diff-file', { timeout: 5000 })
+  await page.waitForTimeout(800)
+  const rows = await page.locator('.diff-file').allTextContents()
+  check(rows.length === 2, `finds both files in the answer (${rows.length})`)
+  const orderRow = page.locator('.diff-file', { hasText: 'OrderService.cs' })
+  check((await orderRow.locator('.diff-dot.ok').count()) === 1, 'OrderService.cs diff is "Ready" despite the wrong header')
+  check((await page.locator('.diff-file', { hasText: 'Program.cs' }).locator('.diff-dot.bad').count()) === 1, 'Program.cs diff that doesn’t match the file is refused')
+  await orderRow.click()
+  await page.waitForSelector('.monaco-diff-editor', { timeout: 5000 })
+  await page.waitForTimeout(800)
+  await page.screenshot({ path: join(shots, '8-diff-side-by-side.png') })
+  check((await page.locator('.diff-main .monaco-diff-editor .diffOverview').count()) === 0, 'diff view has no second overview ruler (one scrollbar)')
+  // hide / show the answer panel
+  await page.locator('.diff-main .icon-button').click()
+  await page.waitForTimeout(300)
+  check((await page.locator('.diff-side').count()) === 0 && (await page.locator('.diff-file-select').count()) === 1, 'the answer panel hides, and a file picker takes its place')
+  await page.locator('.diff-file-select').selectOption({ label: '✕ Program.cs · Can’t apply' })
+  await page.waitForTimeout(200)
+  check(((await page.locator('.diff-main .viewer-title .path').textContent()) ?? '').endsWith('Program.cs'), 'the file picker switches files')
+  await page.locator('.diff-file-select').selectOption({ index: 0 })
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+b' : 'Control+b')
+  await page.waitForTimeout(300)
+  check((await page.locator('.diff-side').count()) === 1, `${process.platform === 'darwin' ? '⌘' : 'Ctrl+'}B shows the answer panel again`)
+  await page.locator('.diff-file', { hasText: 'OrderService.cs' }).click()
+  await page.waitForSelector('.monaco-diff-editor')
+  await page.locator('.diff-main .segmented button', { hasText: 'Inline' }).click()
+  await page.waitForTimeout(600)
+  await page.screenshot({ path: join(shots, '9-diff-inline.png') })
+  await page.locator('.diff-main button', { hasText: 'Copy full file' }).click()
+  await page.waitForTimeout(300)
+  const rebuilt = await app.evaluate(({ clipboard }) => clipboard.readText())
+  const expected = readFileSync(join(fixture, 'src/Shop.Api/Services/OrderService.cs'), 'utf8')
+    .replace('    {\n        var total', '    {\n        if (cmd.Items.Count == 0)\n            throw new ValidationException("An order needs at least one item.");\n        var total')
+    .replace(' // bug: divides by zero', '')
+  check(rebuilt === expected, 'Copy full file puts the exact rebuilt file on the clipboard')
+  await page.locator('.diff-main .segmented button', { hasText: 'Full code' }).click()
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: join(shots, '10-diff-full-code.png') })
+  await page.locator('.diff-file', { hasText: 'Program.cs' }).click()
+  await page.waitForTimeout(400)
+  const failNote = (await page.locator('.diff-note.error').allTextContents()).join(' ')
+  check(/Line 2 is “var app = builder.Build\(\);”, but the diff expects “var app = builder.Build\(options\);”/.test(failNote), `explains the mismatch (${failNote.slice(0, 120)})`)
+  check(await page.locator('.diff-main button', { hasText: 'Copy full file' }).isDisabled(), 'no full file to copy when the diff doesn’t match')
+  await page.screenshot({ path: join(shots, '11-diff-refused.png') })
+  await page.locator('.tool-tabs button', { hasText: 'Prompt' }).click()
+  await page.waitForSelector('.tree .row')
 
   // dark mode
   await page.emulateMedia({ colorScheme: 'dark' })

@@ -26,6 +26,7 @@ const api: YazApi = {
   compose: (req) => ipcRenderer.invoke('prompt:compose', req),
   copy: (req) => ipcRenderer.invoke('prompt:copy', req),
   saveState: (state) => ipcRenderer.invoke('state:save', state),
+  copyText: (text) => ipcRenderer.invoke('clipboard:write', text),
   onMenu: (handler) => {
     const listener = (_event: unknown, command: MenuCommand): void => handler(command)
     ipcRenderer.on('menu', listener)

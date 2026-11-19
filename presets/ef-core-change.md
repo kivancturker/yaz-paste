@@ -1,7 +1,9 @@
 ---
 name: EF Core model change
 description: Change the data model and plan a safe migration
-skill: ef-core-migration
+skills:
+  - ef-core-migration
+  - diff-patch
 context:
   - dotnet-conventions.md
 ---

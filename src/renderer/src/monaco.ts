@@ -4,6 +4,8 @@
  */
 import * as monaco from 'monaco-editor/editor/editor.api'
 import 'monaco-editor/basic-languages/monaco.contribution'
+// the icon font (folding arrows, diff markers); bundled as a local file, allowed by the CSP's font-src 'self'
+import 'monaco-editor/features/codicon/register'
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker&inline'
 
 ;(self as unknown as { MonacoEnvironment: { getWorker: () => Worker } }).MonacoEnvironment = {

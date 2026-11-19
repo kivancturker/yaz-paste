@@ -2,7 +2,10 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { loadSkills, parseSkillMarkdown, readSkillBody } from '../src/core/skills'
+import { parseDiff } from '../src/tools/diff/parse'
+import { migrateProjectState } from '../src/shared/state'
 
 describe('skills', () => {
   const root = mkdtempSync(join(tmpdir(), 'yaz-skills-'))
@@ -51,10 +54,31 @@ describe('skills', () => {
 
   it('loads every built-in skill with a name and description', async () => {
     const skills = await loadSkills([{ dir: resolve('skills'), source: 'built-in' }])
-    expect(skills.length).toBe(8)
+    expect(skills.length).toBe(9)
     for (const s of skills) {
       expect(s.description.length).toBeGreaterThan(10)
       expect(s.name).toBe(s.dir.split(/[\\/]/).pop())
     }
+  })
+
+  it('diff-patch: its example diff is exactly what the Diff tool reads, with correct counts', () => {
+    const body = parseSkillMarkdown(readFileSync(resolve('skills/diff-patch/SKILL.md'), 'utf8')).body
+    const example = /````\n([\s\S]*?)\n````/.exec(body)![1]
+    const { files, warnings } = parseDiff(example)
+    expect(warnings).toEqual([])
+    expect(files).toHaveLength(1)
+    expect(files[0].warnings).toEqual([])
+    const hunk = files[0].hunks[0]
+    expect(hunk.lines.filter((l) => l.kind === '+')).toHaveLength(3)
+    // 3 unchanged lines before the first change and after the last, as the skill asks
+    expect(hunk.lines.slice(0, 3).every((l) => l.kind === ' ')).toBe(true)
+    expect(hunk.lines.slice(-3).every((l) => l.kind === ' ')).toBe(true)
+  })
+
+  it('turns the single skill of older saved projects into a list', () => {
+    expect(migrateProjectState({ task: 'x', skillId: 'bug-fix' })).toEqual({ task: 'x', skillIds: ['bug-fix'] })
+    expect(migrateProjectState({ skillId: null })).toEqual({ skillIds: [] })
+    expect(migrateProjectState({ skillIds: ['a', 'a', 3, 'b'] })).toEqual({ skillIds: ['a', 'b'] })
+    expect(migrateProjectState('nope')).toBeNull()
   })
 })

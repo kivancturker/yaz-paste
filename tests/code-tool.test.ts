@@ -132,7 +132,7 @@ describe('project scan and compose', () => {
       allow: new Set()
     })
 
-    const text = renderPrompt({ sections: [out.section], skill: null, task: 'Fix it', format: 'xml' })
+    const text = renderPrompt({ sections: [out.section], skills: [], task: 'Fix it', format: 'xml' })
     expect(text).not.toContain('Hunter2x')
     expect(text).not.toContain(AWS_KEY)
     expect(text).toContain('Password=[REDACTED:connection-string-password];')

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
+import { migrateProjectState } from '../shared/state'
 import type { ProjectState } from '../shared/types'
 
 /**
@@ -35,8 +36,8 @@ async function writeJson(file: string, data: unknown): Promise<void> {
 }
 
 export async function loadProjectState(root: string): Promise<ProjectState | null> {
-  const saved = await readJson<{ root: string; state: ProjectState }>(projectFile(root))
-  return saved && saved.root === root ? saved.state : null
+  const saved = await readJson<{ root: string; state: unknown }>(projectFile(root))
+  return saved && saved.root === root ? migrateProjectState(saved.state) : null
 }
 
 export async function saveProjectState(root: string, state: ProjectState): Promise<void> {

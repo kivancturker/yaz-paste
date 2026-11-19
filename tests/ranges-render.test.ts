@@ -49,7 +49,7 @@ describe('prompt', () => {
   }
 
   it('renders XML with context first and the task last', () => {
-    const out = renderPrompt({ sections: [section], skill: { name: 'bug-fix', body: 'Find the bug.' }, task: 'Fix it', format: 'xml' })
+    const out = renderPrompt({ sections: [section], skills: [{ name: 'bug-fix', body: 'Find the bug.' }], task: 'Fix it', format: 'xml' })
     expect(out).toBe(
       [
         '<project name="shop" type="dotnet">',
@@ -80,13 +80,25 @@ describe('prompt', () => {
   })
 
   it('renders Markdown with fences that survive backticks in code', () => {
-    const md = renderPrompt({ sections: [section], skill: null, task: '', format: 'markdown' })
+    const md = renderPrompt({ sections: [section], skills: [], task: '', format: 'markdown' })
     expect(md).toContain('## File: a.cs\n\n```csharp\nclass A {}\n```')
     expect(fenceFor('const s = ```x```')).toBe('````')
   })
 
+  it('renders several skills in the given order, before the task', () => {
+    const skills = [
+      { name: 'bug-fix', body: 'Find the bug.' },
+      { name: 'diff-patch', body: 'Answer with diffs.' }
+    ]
+    const xml = renderPrompt({ sections: [], skills, task: 'Fix it', format: 'xml' })
+    expect(xml).toBe('<skill name="bug-fix">\nFind the bug.\n</skill>\n\n<skill name="diff-patch">\nAnswer with diffs.\n</skill>\n\n<task>\nFix it\n</task>\n')
+    const md = renderPrompt({ sections: [], skills, task: 'Fix it', format: 'markdown' })
+    expect(md.indexOf('# Skill: bug-fix')).toBeLessThan(md.indexOf('# Skill: diff-patch'))
+    expect(md.indexOf('# Skill: diff-patch')).toBeLessThan(md.indexOf('# Task'))
+  })
+
   it('omits empty skill and task', () => {
-    const out = renderPrompt({ sections: [], skill: null, task: '   ', format: 'xml' })
+    const out = renderPrompt({ sections: [], skills: [], task: '   ', format: 'xml' })
     expect(out).toBe('\n')
   })
 })

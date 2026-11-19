@@ -1,7 +1,8 @@
 ---
 name: .NET unit tests
 description: Write xUnit tests following the .NET conventions
-skill: write-tests
+skills:
+  - write-tests
 context:
   - dotnet-conventions.md
 ---

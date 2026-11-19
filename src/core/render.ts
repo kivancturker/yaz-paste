@@ -3,7 +3,8 @@ import type { ContextSection } from './context'
 
 export interface PromptParts {
   sections: ContextSection[]
-  skill: { name: string; body: string } | null
+  /** In prompt order. */
+  skills: { name: string; body: string }[]
   task: string
   format: OutputFormat
 }
@@ -48,7 +49,7 @@ function renderXml(parts: PromptParts): string {
     if (openGroup) out.push(`</${openGroup}>`)
     out.push(`</${section.tag}>`, '')
   }
-  if (parts.skill) out.push(`<skill name="${escapeAttr(parts.skill.name)}">`, parts.skill.body.trim(), '</skill>', '')
+  for (const skill of parts.skills) out.push(`<skill name="${escapeAttr(skill.name)}">`, skill.body.trim(), '</skill>', '')
   if (parts.task.trim()) out.push('<task>', parts.task.trim(), '</task>', '')
   return out.join('\n').trimEnd() + '\n'
 }
@@ -62,12 +63,12 @@ function renderMarkdown(parts: PromptParts): string {
       out.push(`## ${block.title}`, '', `${fence}${block.language ?? 'text'}`, block.content, fence, '')
     }
   }
-  if (parts.skill) out.push(`# Skill: ${parts.skill.name}`, '', parts.skill.body.trim(), '')
+  for (const skill of parts.skills) out.push(`# Skill: ${skill.name}`, '', skill.body.trim(), '')
   if (parts.task.trim()) out.push('# Task', '', parts.task.trim(), '')
   return out.join('\n').trimEnd() + '\n'
 }
 
-/** Long context first, then the skill, then the task last: models follow instructions better after the code. */
+/** Long context first, then the skills, then the task last: models follow instructions better after the code. */
 export function renderPrompt(parts: PromptParts): string {
   return parts.format === 'markdown' ? renderMarkdown(parts) : renderXml(parts)
 }

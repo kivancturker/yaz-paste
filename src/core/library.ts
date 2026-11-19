@@ -12,7 +12,7 @@ import { parseSkillMarkdown } from './skills'
 /**
  * The library holds reusable pieces that aren't part of the project's code:
  *  - context: saved reference files (guidelines, architecture notes, examples, any text file)
- *  - presets: ready-made combinations of a skill + context files + an optional task template
+ *  - presets: ready-made combinations of skills + context files + an optional task template
  *
  * Each lives in three places: the project (`<project>/.yaz/…`, shareable through git), the user's home
  * (`~/.yaz/…`), and the built-in set shipped with the app. On a name clash the most specific one wins.
@@ -106,17 +106,22 @@ export function parsePreset(markdown: string, fallbackName: string): Omit<Preset
     id: name,
     name,
     description: typeof meta.description === 'string' ? meta.description.trim() : '',
-    skill: typeof meta.skill === 'string' && meta.skill.trim() ? meta.skill.trim() : null,
+    // `skills:` is a list; presets written before several skills were allowed have one `skill:`
+    skills: uniqueList([...stringList(meta.skills), ...(typeof meta.skill === 'string' && meta.skill.trim() ? [meta.skill.trim()] : [])]),
     context: stringList(meta.context),
     task: body.trim()
   }
 }
 
-export function serializePreset(input: Pick<PresetInput, 'name' | 'description' | 'skill' | 'context' | 'task'>): string {
+function uniqueList(list: string[]): string[] {
+  return [...new Set(list)]
+}
+
+export function serializePreset(input: Pick<PresetInput, 'name' | 'description' | 'skills' | 'context' | 'task'>): string {
   const meta = stringifyYaml({
     name: input.name.trim(),
     description: input.description.trim(),
-    skill: input.skill,
+    skills: uniqueList(input.skills),
     context: input.context
   })
   const task = input.task.trim()

@@ -1,7 +1,8 @@
 ---
 name: Code review
 description: Thorough review against the review checklist
-skill: code-review
+skills:
+  - code-review
 context:
   - review-checklist.md
 ---

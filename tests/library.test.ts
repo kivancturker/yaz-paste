@@ -57,7 +57,7 @@ describe('context library', () => {
     const out = await buildContextSection(['rules.md', 'notes.txt', 'gone.md'], items, new Set())
     expect(out.findings.map((f) => f.rule)).toEqual(['connection-string-password'])
     expect(out.warnings).toEqual([{ path: 'context/gone.md', message: 'Saved context file not found; skipped.' }])
-    const text = renderPrompt({ sections: [out.section!], skill: null, task: 'Do it', format: 'xml' })
+    const text = renderPrompt({ sections: [out.section!], skills: [], task: 'Do it', format: 'xml' })
     expect(text).toBe(
       [
         '<additional_context>',
@@ -92,21 +92,27 @@ describe('context library', () => {
 
 describe('presets', () => {
   it('round-trips through the file format', () => {
-    const md = serializePreset({ name: 'Checkout bugs', description: 'Cart & payment', skill: 'bug-fix', context: ['a.md', 'b.md'], task: 'Bug:\n' })
+    const md = serializePreset({ name: 'Checkout bugs', description: 'Cart & payment', skills: ['bug-fix', 'diff-patch'], context: ['a.md', 'b.md'], task: 'Bug:\n' })
+    expect(md).toContain('skills:\n  - bug-fix\n  - diff-patch\n')
     expect(parsePreset(md, 'x')).toEqual({
       id: 'Checkout bugs',
       name: 'Checkout bugs',
       description: 'Cart & payment',
-      skill: 'bug-fix',
+      skills: ['bug-fix', 'diff-patch'],
       context: ['a.md', 'b.md'],
       task: 'Bug:'
     })
-    expect(parsePreset(serializePreset({ name: 'No skill', description: '', skill: null, context: [], task: '' }), 'x').skill).toBeNull()
+    expect(parsePreset(serializePreset({ name: 'No skill', description: '', skills: [], context: [], task: '' }), 'x').skills).toEqual([])
+  })
+
+  it('still reads presets written with a single `skill:`', () => {
+    expect(parsePreset('---\nname: Old\nskill: bug-fix\n---\n', 'x').skills).toEqual(['bug-fix'])
+    expect(parsePreset('---\nname: Both\nskills: [refactor]\nskill: refactor\n---\n', 'x').skills).toEqual(['refactor'])
   })
 
   it('saves, overwrites by name, and loads with precedence', async () => {
     const dir = join(root, 'presets-user')
-    const input = { name: 'Review', description: 'v1', skill: 'code-review', context: [], task: '', scope: 'user' as const }
+    const input = { name: 'Review', description: 'v1', skills: ['code-review'], context: [], task: '', scope: 'user' as const }
     await writePreset(dir, input, [])
     let loaded = await loadPresets([{ dir, source: 'user' }])
     await writePreset(dir, { ...input, description: 'v2' }, loaded)
@@ -129,12 +135,17 @@ describe('presets', () => {
     const presets = await loadPresets([{ dir: resolve('presets'), source: 'built-in' }])
     const skills = new Set((await loadSkills([{ dir: resolve('skills'), source: 'built-in' }])).map((s) => s.id))
     const context = new Set((await loadContextItems([{ dir: resolve('context'), source: 'built-in' }])).map((c) => c.id))
-    expect(presets.length).toBe(7)
+    expect(presets.length).toBe(8)
     for (const p of presets) {
       expect(p.description).not.toBe('')
-      if (p.skill) expect(skills.has(p.skill)).toBe(true)
+      for (const s of p.skills) expect(skills.has(s)).toBe(true)
       for (const c of p.context) expect(context.has(c)).toBe(true)
     }
+    // the code-changing presets answer in the Diff tab's format
+    for (const name of ['.NET bug fix', 'Node.js bug fix']) expect(presets.find((p) => p.name === name)?.skills).toEqual(['bug-fix', 'diff-patch'])
+    const diffs = presets.find((p) => p.name === 'Change with diffs')
+    expect(diffs).toMatchObject({ skills: ['diff-patch'], context: [] })
+    expect(diffs!.task).toContain('Change:')
   })
 })
 

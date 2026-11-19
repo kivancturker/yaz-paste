@@ -2,7 +2,7 @@
 
 A desktop app (Windows + macOS) that turns your code into a clean, structured prompt for any AI chat.
 
-Open a project folder, tick files (or pick specific lines), choose a skill, write the task, and copy one
+Open a project folder, tick files (or pick specific lines), tick one or more skills, write the task, and copy one
 XML or Markdown prompt to the clipboard. Secrets are redacted before anything reaches the clipboard.
 
 ## Use it
@@ -20,12 +20,37 @@ XML or Markdown prompt to the clipboard. Secrets are redacted before anything re
    - **From text selection**: turns the text you selected in the editor into ranges.
 
    **Whole file** switches back to including all of it.
-4. **Pick a preset** (or choose a skill and tick context files yourself) and **write the task**.
+4. **Pick a preset** (or tick skills and context files yourself) and **write the task**. You can tick several
+   skills, e.g. `bug-fix` (what to do) + `diff-patch` (how to write the code). They go into the prompt in the order
+   you ticked them; with two or more, the **Prompt order** chips below the list move them earlier or later.
 5. **Copy prompt** (`Ctrl/⌘+Shift+C`) or **Preview** (`Ctrl/⌘+Shift+P`).
 
 The token count (≈, o200k tokenizer) and a bar against a 200k context window update as you go.
 
 The three panels are resizable: drag the line between them (double-click it to reset). Widths are remembered.
+
+## Diff: see an AI answer's changes and get the full files
+
+Ask the AI for diffs only: pick the **Change with diffs** preset or the **`diff-patch`** skill (it spells out the exact format the Diff tab reads, so
+diffs come back "Ready"), or tick it together with another skill (`bug-fix` + `diff-patch`, as the bug-fix presets do). Then switch to the **Diff** tab and paste
+the whole answer. The diffs are found inside it (```` ```diff ```` blocks or raw `git diff` output), each one is
+applied to the real file from the open project, and you get:
+
+- a **side-by-side** or **inline** view of the changes (computed from the real old and new file, not from the AI's text),
+- the **full code** of every changed file, with **Copy full file**.
+
+It never guesses. Every context and removed line must match the file:
+
+| Status | Meaning |
+|---|---|
+| **Ready** | Every change was found in exactly one place in the file. The AI's line numbers may be off; that's fine. |
+| **Check** | Applied, but look at the flagged change: it matched only when ignoring indentation, or a block that repeats in the file was placed by its line number. |
+| **Already applied** | The file already contains these changes. |
+| **Can't apply** | A line doesn't match the file. You see which line and what the file has instead; no full code is produced, so nothing wrong gets copied. |
+
+New, deleted and renamed files, several diff blocks for one file, hunks without line numbers, wrong hunk counts,
+CRLF and diffs nested in Markdown lists are handled. Paths like `Services/OrderService.cs` are matched to the
+one project file that ends with them (never when several do).
 
 ## Library: create presets, skills and context files
 
@@ -33,14 +58,14 @@ Everything reusable is managed in the **Library** (top bar), or straight from th
 
 | In the right panel | What it does |
 |---|---|
-| **Preset → Save current…** | Saves the skill and context files you have selected right now as a preset |
+| **Preset → Save current…** | Saves the skills (in order) and context files you have selected right now as a preset |
 | **Preset / Skill / Context → New** | Opens the Library with a blank preset, skill or context file |
 | **Preset / Skill → Edit** (or **View**) | Opens the selected one in the Library |
 | **Context → Import…** | Copies existing files from disk into your library or the project |
 
 In the Library you can write or paste content, choose where a new item is saved (**My library** for all
 projects, or **This project** to share it through git), save changes, delete (moves to the trash), and use the
-item right away (**Apply preset** / **Use this skill** / **Tick for this prompt**). Built-in items are read-only:
+item right away (**Apply preset** / **Use this skill**, which ticks it / **Tick for this prompt**). Built-in items are read-only:
 **Duplicate to edit** makes your own copy, and a copy with the same name replaces the built-in one.
 
 ### What the prompt looks like
@@ -76,7 +101,7 @@ Creating an order with no items throws. Fix it.
 ```
 
 Context comes first and the task last, which is the order models follow best. Ticked context files go in an
-`<additional_context>` section between the project and the skill.
+`<additional_context>` section between the project and the skills.
 
 ## Context files
 
@@ -97,19 +122,20 @@ a `description:` in YAML frontmatter, which is shown in the list and left out of
 
 ## Presets
 
-A preset is a ready-made combination of a **skill**, **context files** and an optional **task template**, for the
-cases you hit again and again. Choosing one sets the skill, ticks its context files, and fills the task box with the
-template if it's empty. **Save current…** stores your current skill + context (and optionally the task) as a new
+A preset is a ready-made combination of **skills**, **context files** and an optional **task template**, for the
+cases you hit again and again. Choosing one ticks its skills (in its order) and context files, and fills the task box with the
+template if it's empty. **Save current…** stores your current skills + context (and optionally the task) as a new
 preset, and **New** / **Edit** open it in the Library. Presets are Markdown files:
 
 ```markdown
 ---
 name: .NET bug fix
 description: Find and fix a bug in .NET code, answering with diffs
-skill: bug-fix
+skills:          # in prompt order (older presets with a single `skill: bug-fix` still work)
+  - bug-fix
+  - diff-patch
 context:
   - dotnet-conventions.md
-  - answer-with-diffs.md
 ---
 Bug:
 
@@ -118,7 +144,7 @@ Steps to reproduce:
 
 They're loaded from `<project>/.yaz/presets/`, `~/.yaz/presets/`, and the built-in set: *.NET bug fix*,
 *Node.js bug fix*, *Code review*, *.NET unit tests*, *EF Core model change*, *Security audit*,
-*Explain to a newcomer*.
+*Explain to a newcomer*, *Change with diffs* (the `diff-patch` skill, for the Diff tab).
 
 ## Safety
 
@@ -150,7 +176,7 @@ They are loaded from these folders. If two have the same `name`, the first one i
 1. `<project>/.claude/skills/`, `<project>/.agents/skills/`
 2. `~/.claude/skills/`, `~/.agents/skills/` (Windows: `%USERPROFILE%\.claude\skills\`)
 3. Built-in: `bug-fix`, `code-review`, `write-tests`, `refactor`, `explain-code`, `add-feature`,
-   `ef-core-migration`, `security-review` (in [`skills/`](skills/))
+   `ef-core-migration`, `security-review`, `diff-patch` (in [`skills/`](skills/))
 
 ## Develop
 
@@ -187,6 +213,7 @@ of your home for `~/.yaz` and `~/.claude/skills` (the smoke test uses both).
 src/
   core/        prompt renderer, secret scanner, tokens, skills, context library & presets (no Electron imports)
   tools/code/  Tool #1: project scan, ignore/block rules, file reading, prompt section
+  tools/diff/  Tool #2: diff parser, strict patch applier, path matching (pure TS, also used by the UI)
   main/        Electron main process: window, menu, IPC, per-project state
   preload/     the typed bridge the UI calls (contextBridge)
   renderer/    React UI: file tree, Monaco viewer, composer

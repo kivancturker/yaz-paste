@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ContextItem, LibraryItemDetail, LibraryKind, LibraryScope, Preset, SkillInfo, SkillSource } from '../../../shared/types'
 import { MenuButton } from './MenuButton'
+import { SkillPicker } from './SkillPicker'
 
 const api = window.api
 
@@ -16,7 +17,7 @@ interface Props {
   contextItems: ContextItem[]
   presets: Preset[]
   /** The composer's current choices, offered as a starting point for new presets. */
-  current: { skillId: string | null; contextIds: string[]; task: string }
+  current: { skillIds: string[]; contextIds: string[]; task: string }
   onClose(): void
   /** Reloads the library lists after a change. */
   onChanged(): Promise<void>
@@ -31,12 +32,12 @@ interface Draft {
   name: string
   description: string
   body: string
-  skill: string | null
+  skills: string[]
   context: string[]
   scope: LibraryScope
 }
 
-const EMPTY: Draft = { name: '', description: '', body: '', skill: null, context: [], scope: 'user' }
+const EMPTY: Draft = { name: '', description: '', body: '', skills: [], context: [], scope: 'user' }
 
 const TABS: { kind: LibraryKind; label: string; singular: string }[] = [
   { kind: 'presets', label: 'Presets', singular: 'preset' },
@@ -59,7 +60,7 @@ function draftFrom(detail: LibraryItemDetail): Draft {
     name: detail.name,
     description: detail.description,
     body: detail.body,
-    skill: detail.skill,
+    skills: detail.skills,
     context: detail.context,
     scope: detail.source === 'project' ? 'project' : 'user'
   }
@@ -70,7 +71,7 @@ function sameDraft(a: Draft, b: Draft): boolean {
     a.name === b.name &&
     a.description === b.description &&
     a.body === b.body &&
-    a.skill === b.skill &&
+    a.skills.join('\n') === b.skills.join('\n') &&
     a.context.join('\n') === b.context.join('\n') &&
     a.scope === b.scope
   )
@@ -103,7 +104,7 @@ export function LibraryModal(props: Props) {
       const fresh: Draft = {
         ...EMPTY,
         ...(forKind === 'skills' ? { body: SKILL_TEMPLATE } : {}),
-        ...(forKind === 'presets' ? { skill: props.current.skillId, context: props.current.contextIds } : {}),
+        ...(forKind === 'presets' ? { skills: props.current.skillIds, context: props.current.contextIds } : {}),
         ...prefill
       }
       setSelectedId(null)
@@ -112,7 +113,7 @@ export function LibraryModal(props: Props) {
       setBaseline(fresh)
       setError(null)
     },
-    [props.current.skillId, props.current.contextIds]
+    [props.current.skillIds, props.current.contextIds]
   )
 
   // opened on "New": start an empty item once
@@ -179,7 +180,7 @@ export function LibraryModal(props: Props) {
         name: draft.name,
         description: draft.description,
         body: draft.body,
-        skill: draft.skill,
+        skills: draft.skills,
         context: draft.context
       })
       await props.onChanged()
@@ -321,24 +322,16 @@ export function LibraryModal(props: Props) {
 
               {kind === 'presets' && (
                 <>
-                  <label className="field">
-                    <span className="label">Skill</span>
-                    <select value={draft.skill ?? ''} disabled={readOnly} onChange={(e) => set('skill', e.target.value || null)}>
-                      <option value="">No skill</option>
-                      {skills.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
-                      ))}
-                      {draft.skill && !skills.some((s) => s.id === draft.skill) && <option value={draft.skill}>{draft.skill} (missing)</option>}
-                    </select>
-                  </label>
+                  <div className="field">
+                    <span className="label">Skills</span>
+                    <SkillPicker skills={skills} selected={draft.skills} onChange={(list) => set('skills', list)} disabled={readOnly} compact />
+                  </div>
                   <div className="field">
                     <div className="label-row">
                       <span className="label">Context files</span>
                       {!readOnly && (
-                        <button className="link" onClick={() => setDraft((d) => ({ ...d, skill: props.current.skillId, context: props.current.contextIds }))}>
-                          Use current skill &amp; context
+                        <button className="link" onClick={() => setDraft((d) => ({ ...d, skills: props.current.skillIds, context: props.current.contextIds }))}>
+                          Use current skills &amp; context
                         </button>
                       )}
                     </div>

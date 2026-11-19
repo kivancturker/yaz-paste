@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { LibraryScope, Preset, PresetInput } from '../../../shared/types'
 
 interface Props {
-  skillId: string | null
+  skillIds: string[]
   contextIds: string[]
   task: string
   /** The preset currently applied, used to prefill the form when updating it. */
@@ -11,7 +11,7 @@ interface Props {
   onSave(input: PresetInput): void
 }
 
-export function SavePresetModal({ skillId, contextIds, task, current, onCancel, onSave }: Props) {
+export function SavePresetModal({ skillIds, contextIds, task, current, onCancel, onSave }: Props) {
   const editable = current && current.source !== 'built-in' ? current : null
   const [name, setName] = useState(editable?.name ?? '')
   const [description, setDescription] = useState(editable?.description ?? '')
@@ -28,7 +28,7 @@ export function SavePresetModal({ skillId, contextIds, task, current, onCancel, 
 
   const submit = (): void => {
     if (!name.trim()) return
-    onSave({ name: name.trim(), description, skill: skillId, context: contextIds, task: includeTask ? task : '', scope })
+    onSave({ name: name.trim(), description, skills: skillIds, context: contextIds, task: includeTask ? task : '', scope })
   }
 
   return (
@@ -48,11 +48,11 @@ export function SavePresetModal({ skillId, contextIds, task, current, onCancel, 
         </div>
         <div className="form">
           <p className="muted small">
-            A preset saves the current skill and context files so you can apply them again in one click.
+            A preset saves the current skills and context files so you can apply them again in one click.
           </p>
           <div className="summary">
             <div>
-              <span className="label">Skill</span> {skillId ?? <span className="muted">none</span>}
+              <span className="label">Skills</span> {skillIds.length ? skillIds.join(' → ') : <span className="muted">none</span>}
             </div>
             <div>
               <span className="label">Context</span>{' '}

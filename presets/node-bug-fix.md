@@ -1,10 +1,11 @@
 ---
 name: Node.js bug fix
 description: Find and fix a bug in TypeScript / Node.js code, answering with diffs
-skill: bug-fix
+skills:
+  - bug-fix
+  - diff-patch
 context:
   - node-conventions.md
-  - answer-with-diffs.md
 ---
 Bug:
 

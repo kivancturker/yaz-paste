@@ -112,6 +112,10 @@ export function registerIpc(startupPath: () => Promise<string | null>): void {
     clipboard.writeText(result.text)
     return result
   })
+  handle('clipboard:write', (text: string) => {
+    if (typeof text !== 'string') throw new Error('Invalid text')
+    clipboard.writeText(text)
+  })
   handle('state:save', async (state: ProjectState) => {
     if (current && state && typeof state === 'object') await saveProjectState(current.root, state)
   })

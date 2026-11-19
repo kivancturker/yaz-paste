@@ -1,6 +1,7 @@
 import type { ComposeResult, ContextItem, LibraryKind, LibraryScope, OutputFormat, Preset, SkillInfo, TokenEstimate, TreeMode } from '../../../shared/types'
 import { formatTokens } from '../lib/tree'
 import { MenuButton } from './MenuButton'
+import { SkillPicker } from './SkillPicker'
 
 interface Props {
   skills: SkillInfo[]
@@ -14,7 +15,8 @@ interface Props {
   onOpenLibrary(kind: LibraryKind, id: string | null): void
   onToggleContext(id: string): void
   onAddContext(scope: LibraryScope): void
-  skillId: string | null
+  /** Ticked skills, in prompt order. */
+  skillIds: string[]
   task: string
   format: OutputFormat
   treeMode: TreeMode
@@ -25,7 +27,8 @@ interface Props {
   result: { kind: 'copy' | 'preview'; data: ComposeResult } | null
   allow: Set<string>
   mod: string
-  onSkill(id: string | null): void
+  /** The new list of ticked skills, in prompt order. */
+  onSkills(ids: string[]): void
   onTask(task: string): void
   onFormat(format: OutputFormat): void
   onTreeMode(mode: TreeMode): void
@@ -44,11 +47,10 @@ function sameSet(a: string[], b: string[]): boolean {
 }
 
 export function Composer(props: Props) {
-  const { skills, skillId, estimate, result } = props
-  const skill = skills.find((s) => s.id === skillId) ?? null
-  const groups = SOURCES.map((source) => ({ source, items: skills.filter((s) => s.source === source) }))
+  const { skills, skillIds, estimate, result } = props
+  const firstSkill = skills.find((s) => s.id === skillIds[0]) ?? null
   const preset = props.presets.find((p) => p.id === props.presetId) ?? null
-  const presetChanged = preset !== null && (preset.skill !== skillId || !sameSet(preset.context, props.contextIds))
+  const presetChanged = preset !== null && (preset.skills.join('\n') !== skillIds.join('\n') || !sameSet(preset.context, props.contextIds))
   const presetGroups = SOURCES.map((source) => ({ source, items: props.presets.filter((p) => p.source === source) }))
   const total = estimate?.total ?? 0
   const pct = Math.min(100, (total / BUDGET) * 100)
@@ -64,8 +66,8 @@ export function Composer(props: Props) {
             <button
               className="link"
               onClick={props.onSavePreset}
-              disabled={!skillId && props.contextIds.length === 0}
-              title="Save the current skill and context files as a preset"
+              disabled={skillIds.length === 0 && props.contextIds.length === 0}
+              title="Save the current skills and context files as a preset"
             >
               Save current…
             </button>
@@ -101,38 +103,19 @@ export function Composer(props: Props) {
 
       <section>
         <div className="label-row">
-          <label className="label" htmlFor="skill">
-            Skill
-          </label>
+          <span className="label">
+            Skills{skillIds.length > 0 && <span className="count-pill">{skillIds.length}</span>}
+          </span>
           <div className="label-actions">
             <button className="link" onClick={() => props.onOpenLibrary('skills', null)} title="Write a new skill">
               New
             </button>
-            <button className="link" onClick={() => props.onOpenLibrary('skills', skillId)} title="View, edit, duplicate or delete skills">
-              {skill ? (skill.source === 'built-in' ? 'View' : 'Edit') : 'Manage'}
+            <button className="link" onClick={() => props.onOpenLibrary('skills', skillIds[0] ?? null)} title="View, edit, duplicate or delete skills">
+              {firstSkill && skillIds.length === 1 ? (firstSkill.source === 'built-in' ? 'View' : 'Edit') : 'Manage'}
             </button>
           </div>
         </div>
-        <select id="skill" value={skillId ?? ''} onChange={(e) => props.onSkill(e.target.value || null)}>
-          <option value="">No skill</option>
-          {groups
-            .filter((g) => g.items.length)
-            .map((g) => (
-              <optgroup key={g.source} label={`${SOURCE_LABEL[g.source]} skills`}>
-                {g.items.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-        </select>
-        {skill && (
-          <p className="hint" title={skill.dir}>
-            {skill.description || 'No description.'}
-            {skill.extraFiles.length > 0 && <span className="muted"> · {skill.extraFiles.length} extra file(s) not included</span>}
-          </p>
-        )}
+        <SkillPicker skills={skills} selected={skillIds} onChange={props.onSkills} />
       </section>
 
       <section>

@@ -17,6 +17,7 @@ import type {
   TreeMode
 } from '../../shared/types'
 import { Composer } from './components/Composer'
+import { DiffTool } from './components/DiffTool'
 import { FileTree } from './components/FileTree'
 import { PreviewModal } from './components/PreviewModal'
 import { LibraryModal, type LibraryTarget } from './components/LibraryModal'
@@ -33,7 +34,7 @@ const RIGHT_LIMITS = { min: 300, max: 720, initial: 370 }
 const DEFAULT_STATE: ProjectState = {
   selection: {},
   task: '',
-  skillId: null,
+  skillIds: [],
   format: 'xml',
   treeMode: 'selected',
   wholeFileLineNumbers: false,
@@ -81,6 +82,8 @@ export function App() {
   const [allow, setAllow] = useState<Set<string>>(new Set())
   const [toast, setToast] = useState<{ text: string; error?: boolean } | null>(null)
   const [starting, setStarting] = useState(true)
+  const [tool, setTool] = useState<'prompt' | 'diff'>('prompt')
+  const [diffText, setDiffText] = useState('')
 
   const showToast = useCallback((text: string, error = false) => {
     setToast({ text, error })
@@ -105,9 +108,10 @@ export function App() {
     setAllow(new Set())
     setEstimate(null)
     const library = await refreshLibrary()
-    // forget context files that were deleted from the library since last time
+    // forget skills and context files that were deleted from the library since last time
     const known = new Set(library.context.map((c) => c.id))
-    setState((s) => ({ ...s, contextIds: s.contextIds.filter((id) => known.has(id)) }))
+    const knownSkills = new Set(library.skills.map((k) => k.id))
+    setState((s) => ({ ...s, contextIds: s.contextIds.filter((id) => known.has(id)), skillIds: s.skillIds.filter((id) => knownSkills.has(id)) }))
     setRecent(await api.recentProjects())
     document.title = `${info.name} — yaz-paste`
   }, [refreshLibrary])
@@ -159,16 +163,17 @@ export function App() {
       if (!preset) return
       const known = new Set(contextItems.map((c) => c.id))
       const missing = preset.context.filter((c) => !known.has(c))
-      const skillMissing = preset.skill !== null && !skills.some((s) => s.id === preset.skill)
+      const knownSkills = new Set(skills.map((s) => s.id))
+      const skillsMissing = preset.skills.filter((s) => !knownSkills.has(s))
       setState((s) => ({
         ...s,
         presetId: id,
-        skillId: skillMissing ? s.skillId : preset.skill,
+        skillIds: preset.skills.filter((k) => knownSkills.has(k)),
         contextIds: preset.context.filter((c) => known.has(c)),
         task: s.task.trim() ? s.task : preset.task
       }))
-      if (missing.length || skillMissing)
-        showToast(`Preset applied, but ${[...(skillMissing ? [`skill "${preset.skill}"`] : []), ...missing].join(', ')} not found`, true)
+      if (missing.length || skillsMissing.length)
+        showToast(`Preset applied, but ${[...skillsMissing.map((k) => `skill "${k}"`), ...missing].join(', ')} not found`, true)
     },
     [presets, contextItems, skills, showToast]
   )
@@ -216,7 +221,7 @@ export function App() {
       selection: state.selection,
       contextIds: state.contextIds,
       task: state.task,
-      skillId: state.skillId,
+      skillIds: state.skillIds,
       format: state.format,
       treeMode: state.treeMode,
       wholeFileLineNumbers: state.wholeFileLineNumbers
@@ -317,16 +322,17 @@ export function App() {
   }, [project, busy, run, request, allow])
 
   // menu shortcuts
-  const handlers = useRef({ openFolder, rescan, copy, openPreview })
-  handlers.current = { openFolder, rescan, copy, openPreview }
+  const handlers = useRef({ openFolder, rescan, copy, openPreview, tool })
+  handlers.current = { openFolder, rescan, copy, openPreview, tool }
   useEffect(
     () =>
       api.onMenu((command) => {
         const h = handlers.current
         if (command === 'open-folder') void h.openFolder()
         else if (command === 'rescan') void h.rescan()
-        else if (command === 'copy') void h.copy()
-        else if (command === 'preview') void h.openPreview()
+        // the prompt shortcuts only act in the prompt tool, so they never copy something you can't see
+        else if (command === 'copy' && h.tool === 'prompt') void h.copy()
+        else if (command === 'preview' && h.tool === 'prompt') void h.openPreview()
       }),
     []
   )
@@ -339,7 +345,7 @@ export function App() {
       <div className="welcome">
         <div className="welcome-card">
           <h1>yaz-paste</h1>
-          <p className="muted">Pick files from a project, add a task and a skill, and copy one clean prompt for any AI chat. Secrets are redacted before anything reaches your clipboard.</p>
+          <p className="muted">Pick files from a project, add a task and skills, and copy one clean prompt for any AI chat. Secrets are redacted before anything reaches your clipboard.</p>
           <button className="primary big-button" onClick={() => void openFolder()} disabled={starting}>
             Open folder… <kbd>{MOD}O</kbd>
           </button>
@@ -367,6 +373,14 @@ export function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">yaz-paste</div>
+        <nav className="tool-tabs" role="tablist" aria-label="Tools">
+          <button role="tab" aria-selected={tool === 'prompt'} className={tool === 'prompt' ? 'on' : ''} onClick={() => setTool('prompt')} title="Build a prompt from your code">
+            Prompt
+          </button>
+          <button role="tab" aria-selected={tool === 'diff'} className={tool === 'diff' ? 'on' : ''} onClick={() => setTool('diff')} title="See an AI answer's diffs and get the full files">
+            Diff
+          </button>
+        </nav>
         <div className="spacer" />
         <div className="project-info" title={project.root}>
           <strong>{project.name}</strong>
@@ -407,6 +421,9 @@ export function App() {
         </button>
       </header>
 
+      {tool === 'diff' ? (
+        <DiffTool files={project.files} scanKey={project} text={diffText} onText={setDiffText} dark={dark} onToast={showToast} />
+      ) : (
       <main className="workspace" style={{ gridTemplateColumns: `${leftWidth}px auto minmax(0, 1fr) auto ${rightWidth}px` }}>
         <FileTree
           files={project.files}
@@ -444,7 +461,7 @@ export function App() {
             }))
           }
           onAddContext={(scope) => void addContext(scope)}
-          skillId={state.skillId}
+          skillIds={state.skillIds}
           task={state.task}
           format={state.format}
           treeMode={state.treeMode}
@@ -455,7 +472,7 @@ export function App() {
           result={result}
           allow={allow}
           mod={MOD}
-          onSkill={(skillId) => setState((s) => ({ ...s, skillId }))}
+          onSkills={(skillIds) => setState((s) => ({ ...s, skillIds }))}
           onTask={(task) => setState((s) => ({ ...s, task }))}
           onFormat={(format: OutputFormat) => setState((s) => ({ ...s, format }))}
           onTreeMode={(treeMode: TreeMode) => setState((s) => ({ ...s, treeMode }))}
@@ -472,6 +489,7 @@ export function App() {
           onCopy={() => void copy()}
         />
       </main>
+      )}
 
       {preview && (
         <PreviewModal
@@ -490,20 +508,20 @@ export function App() {
           skills={skills}
           contextItems={contextItems}
           presets={presets}
-          current={{ skillId: state.skillId, contextIds: state.contextIds, task: state.task }}
+          current={{ skillIds: state.skillIds, contextIds: state.contextIds, task: state.task }}
           onClose={() => setLibrary(null)}
           onChanged={async () => {
             const lib = await refreshLibrary()
             // drop a skill or context file that was just deleted or renamed
             setState((s) => ({
               ...s,
-              skillId: s.skillId && lib.skills.some((k) => k.id === s.skillId) ? s.skillId : null,
+              skillIds: s.skillIds.filter((id) => lib.skills.some((k) => k.id === id)),
               contextIds: s.contextIds.filter((id) => lib.context.some((c) => c.id === id))
             }))
           }}
           onUse={(kind, id) => {
             if (kind === 'presets') applyPreset(id)
-            else if (kind === 'skills') setState((s) => ({ ...s, skillId: id }))
+            else if (kind === 'skills') setState((s) => ({ ...s, skillIds: s.skillIds.includes(id) ? s.skillIds : [...s.skillIds, id] }))
             else setState((s) => ({ ...s, contextIds: s.contextIds.includes(id) ? s.contextIds : [...s.contextIds, id] }))
           }}
           onAddContextFiles={(scope) => void addContext(scope)}
@@ -513,7 +531,7 @@ export function App() {
       )}
       {savingPreset && (
         <SavePresetModal
-          skillId={state.skillId}
+          skillIds={state.skillIds}
           contextIds={state.contextIds}
           task={state.task}
           current={presets.find((p) => p.id === state.presetId) ?? null}
